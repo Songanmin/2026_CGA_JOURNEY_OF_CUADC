@@ -30,8 +30,9 @@ PC 端（Windows）入口 = ops 自动 ssh 远跑，等价于上机执行:
   --dry-run         只打印链路与参数后退出
 
 安全设计:
-  · 第一次 Ctrl-C = 只退看护，任务节点与 MAVROS 保持运行（飞机可能仍在自主飞！），
-    打印手工收尾命令；第二次 Ctrl-C 或确认落地后才强杀全部子进程。
+  · 第一次 Ctrl-C = 只退看护，任务节点与 MAVROS 保持运行（飞机可能仍在飞！），
+    打印手工收尾命令；子进程已独立成组（start_new_session），再次 Ctrl-C 不会
+    误伤任务——确认落地后请按打印的 pkill 命令手工收尾。
   · 正式模式（未给 --no-vision）下感知服务不活跃 → 拒启（视觉起飞门禁 ≥3 帧会卡死，早失败早好）。
 
 方案 2（中+中）被否的历史结论（2026-09-29 按规则 PDF 查证，详见上方案表）:
@@ -218,15 +219,17 @@ def main():
     time.sleep(1)
 
     # ---- [2] MAVROS + GCS 心跳泵 ----
+    # start_new_session：子进程独立成组——ssh -tt 下 Ctrl-C 的 SIGINT 只打看护脚本
+    # 不再连杀任务节点/MAVROS（2026-10-06 实录缺陷），断联亦不误杀（任务存活优先）
     print(f"[2] 起 mavros（{fcu}）+ gcs_pump")
     mlog = (logdir / "mavros.log").open("w")
     mavros = subprocess.Popen(
         ["ros2", "launch", "mavros", "apm.launch",
          f"fcu_url:={fcu}", "gcs_url:=tcp-l://0.0.0.0:14550"],
-        stdout=mlog, stderr=subprocess.STDOUT)
+        stdout=mlog, stderr=subprocess.STDOUT, start_new_session=True)
     pump = subprocess.Popen(["python3", str(Path.home() / "gcs_pump.py")],
                             stdout=(logdir / "pump.log").open("w"),
-                            stderr=subprocess.STDOUT)
+                            stderr=subprocess.STDOUT, start_new_session=True)
 
     # ---- [3] 等连接（30s）----
     print("[3] 等飞控连接（30s）")
@@ -249,11 +252,11 @@ def main():
         ["ros2", "run", "cuadc_mission", "cuadc_mission_node", "--ros-args",
          "--params-file", str(Path.home() / "cuadc_ws/src/cuadc_mission/config/mission_params.yaml"),
          "-p", overrides[0], "-p", overrides[1], "-p", overrides[2], "-p", overrides[3]],
-        stdout=mmission, stderr=subprocess.STDOUT)
+        stdout=mmission, stderr=subprocess.STDOUT, start_new_session=True)
     states_f = (logdir / "mission_states.txt").open("w")
     states_rec = subprocess.Popen(
         ["ros2", "topic", "echo", "/cuadc/mission_state"],
-        stdout=states_f, stderr=subprocess.DEVNULL)
+        stdout=states_f, stderr=subprocess.DEVNULL, start_new_session=True)
     procs = [mission, states_rec, pump, mavros]
     mmission.flush()
     mission_log = logdir / "mission.log"
