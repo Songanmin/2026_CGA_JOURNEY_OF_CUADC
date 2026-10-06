@@ -1796,6 +1796,20 @@ private:
   /// 未知——起飞/降落/上锁按遥测与节流重发兜底，舵机 fire 走 unknown 打标。
   void check_service_results()
   {
+    // MAV_RESULT 结果码→人读名（MAVLink spec；2026-10-06 补：此前 takeoff 被静默拒绝
+    // 时结果码被丢弃，排障三日不可见——ACK 必须留痕）
+    auto mav_result_name = [](int8_t r) -> const char* {
+      switch (r) {
+        case 0: return "ACCEPTED";
+        case 1: return "TEMPORARILY_REJECTED";
+        case 2: return "DENIED";
+        case 3: return "UNSUPPORTED";
+        case 4: return "FAILED";
+        case 5: return "IN_PROGRESS";
+        case 6: return "CANCELLED";
+        default: return "UNKNOWN";
+      }
+    };
     if (service_timed_out(*takeoff_client_, takeoff_future_, takeoff_req_id_,
         takeoff_sent_at_, "takeoff"))
     {
@@ -1804,7 +1818,12 @@ private:
     }
     if (takeoff_future_.valid() && takeoff_future_.wait_for(0s) == std::future_status::ready) {
       const auto res = takeoff_future_.get();
-      if (!res->success) {
+      if (res->success) {
+        RCLCPP_INFO(get_logger(), "takeoff ACK: 接受（result=%s）",
+          mav_result_name(res->result));
+      } else {
+        RCLCPP_WARN(get_logger(), "takeoff ACK: 被拒 success=0 result=%s —— 按节流重发，超时兜底",
+          mav_result_name(res->result));
         takeoff_sent_ = false;
       }
       takeoff_future_ = {};
@@ -1815,7 +1834,14 @@ private:
       land_future_ = {};       // LAND 态按节流重发，结果未知由落地遥测把守
     }
     if (land_future_.valid() && land_future_.wait_for(0s) == std::future_status::ready) {
-      (void)land_future_.get();
+      const auto res = land_future_.get();
+      if (res->success) {
+        RCLCPP_INFO(get_logger(), "land ACK: 接受（result=%s）",
+          mav_result_name(res->result));
+      } else {
+        RCLCPP_WARN(get_logger(), "land ACK: 被拒 success=0 result=%s —— 按节流重发",
+          mav_result_name(res->result));
+      }
       land_future_ = {};
     }
     if (service_timed_out(*arm_client_, arm_future_, arm_req_id_,
@@ -1824,7 +1850,14 @@ private:
       arm_future_ = {};        // DISARM/LAND 态按节流重发
     }
     if (arm_future_.valid() && arm_future_.wait_for(0s) == std::future_status::ready) {
-      (void)arm_future_.get();
+      const auto res = arm_future_.get();
+      if (res->success) {
+        RCLCPP_INFO(get_logger(), "arm ACK: 接受（result=%s）",
+          mav_result_name(res->result));
+      } else {
+        RCLCPP_WARN(get_logger(), "arm ACK: 被拒 success=0 result=%s —— 按节流重发",
+          mav_result_name(res->result));
+      }
       arm_future_ = {};
     }
     if (service_timed_out(*command_client_, command_future_, command_req_id_,
