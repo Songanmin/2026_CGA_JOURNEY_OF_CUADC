@@ -61,6 +61,7 @@
 #include <mavros_msgs/srv/command_tol.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/u_int32.hpp>
@@ -232,6 +233,16 @@ public:
     bucket_sub_ = create_subscription<geometry_msgs::msg::PoseArray>(
       "/perception/drop_buckets_body", rclcpp::SensorDataQoS(),
       std::bind(&CuadcMissionNode::bucket_callback, this, std::placeholders::_1));
+    // 全球定位 fix（AMSL 海拔）：起飞命令高度基准（NAV_TAKEOFF param7=MSL，
+    // 2026-10-06 修：此前直发 takeoff_alt_m 被按海拔解释，场地海拔>3m 即被静默拒飞）
+    global_fix_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
+      "/mavros/global_position/global", rclcpp::SensorDataQoS(),
+      [this](const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
+        if (msg->status.status >= sensor_msgs::msg::NavSatStatus::STATUS_FIX) {
+          ground_amsl_m_ = msg->altitude;
+          ground_amsl_valid_ = true;
+        }
+      });
 
     // ---- 发布：目标点 / 状态广播 / 侦察拍照请求 ----
     setpoint_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>(
@@ -1732,7 +1743,16 @@ private:
       return;
     }
     auto req = std::make_shared<mavros_msgs::srv::CommandTOL::Request>();
-    req->altitude = static_cast<float>(takeoff_alt_m_);
+    if (!ground_amsl_valid_) {
+      // NAV_TAKEOFF param7=海拔（MSL）：无地面海拔采样时不盲发
+      // （2026-10-06 修高度基准 bug：此前直发 takeoff_alt_m 被按海拔解释，
+      //   场地海拔>3m 即被 FC 静默拒飞且无 STATUSTEXT）
+      RCLCPP_WARN(get_logger(), "takeoff 拒发：尚无全球定位海拔采样（地面 AMSL 未知）");
+      return;
+    }
+    req->altitude = static_cast<float>(ground_amsl_m_ + takeoff_alt_m_);
+    RCLCPP_INFO(get_logger(), "takeoff 命令: 目标海拔 %.1fm（地面 %.1fm + 爬升 %.1fm）",
+      req->altitude, ground_amsl_m_, takeoff_alt_m_);
     req->yaw = static_cast<float>(locked_compass_deg_);
     last_request_time_ = now();
     auto far = takeoff_client_->async_send_request(req);
@@ -1998,6 +2018,11 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_sub_;
   rclcpp::Subscription<std_msgs::msg::UInt32>::SharedPtr recon_ack_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr bucket_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr global_fix_sub_;
+  // 地面海拔（AMSL）：起飞命令高度 = 地面海拔 + takeoff_alt_m
+  // （NAV_TAKEOFF param7=MSL；2026-10-06 修高度基准 bug）
+  double ground_amsl_m_ = 0.0;
+  bool ground_amsl_valid_ = false;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr setpoint_pub_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr mission_state_pub_;
