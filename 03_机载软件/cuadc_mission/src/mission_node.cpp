@@ -870,6 +870,13 @@ private:
     frame_locked_ = true;
     build_search_route();
     build_recon_route();
+    // 起飞高度基准冻结（2026-10-07 二次修）：锁框架时机体必在地面且未解锁，
+    // 此处一次性冻结地面海拔——飞行中实时采样会把"当前高度"当"地面"，
+    // 起飞目标=当前高+2.5 引发爬升失控（10-07 12:5x 冲高 9.5m 实录）
+    if (ground_amsl_valid_) {
+      takeoff_base_amsl_ = ground_amsl_m_;
+      takeoff_base_frozen_ = true;
+    }
     RCLCPP_INFO(
       get_logger(), "任务坐标系已锁定: home=(%.2f, %.2f, %.2f) 航向=%.1f°",
       home_->x, home_->y, home_->z, locked_compass_deg_);
@@ -992,6 +999,12 @@ private:
       case State::TAKEOFF:
         publish_setpoint_enabled_ = false;
         if (!flight_gate_ok()) {
+          break;
+        }
+        if (relative_altitude() > 1.0) {
+          // 2026-10-07 补：进入 TAKEOFF 时已在空中（接管/延迟进入场景）——
+          // 此时发起飞命令的基准已不可信，直接按失败返航，防止目标错位冲高
+          fail_and_return("TAKEOFF 进入时已在空中——拒绝起飞");
           break;
         }
         if (!takeoff_sent_) {
@@ -1749,16 +1762,15 @@ private:
       return;
     }
     auto req = std::make_shared<mavros_msgs::srv::CommandTOL::Request>();
-    if (!ground_amsl_valid_) {
-      // NAV_TAKEOFF param7=海拔（MSL）：无地面海拔采样时不盲发
-      // （2026-10-06 修高度基准 bug：此前直发 takeoff_alt_m 被按海拔解释，
-      //   场地海拔>3m 即被 FC 静默拒飞且无 STATUSTEXT）
-      RCLCPP_WARN(get_logger(), "takeoff 拒发：尚无全球定位海拔采样（地面 AMSL 未知）");
+    if (!takeoff_base_frozen_) {
+      // NAV_TAKEOFF param7=海拔（MSL）。基准已在锁框架时一次性冻结——
+      // 未冻结（无全球定位采样/尚未锁框架）则不盲发（fail-closed）
+      RCLCPP_WARN(get_logger(), "takeoff 拒发：地面海拔基准尚未冻结（锁框架前不起飞）");
       return;
     }
-    req->altitude = static_cast<float>(ground_amsl_m_ + takeoff_alt_m_);
-    RCLCPP_INFO(get_logger(), "takeoff 命令: 目标海拔 %.1fm（地面 %.1fm + 爬升 %.1fm）",
-      req->altitude, ground_amsl_m_, takeoff_alt_m_);
+    req->altitude = static_cast<float>(takeoff_base_amsl_ + takeoff_alt_m_);
+    RCLCPP_INFO(get_logger(), "takeoff 命令: 目标海拔 %.1fm（锁框架地面 %.1fm + 爬升 %.1fm）",
+      req->altitude, takeoff_base_amsl_, takeoff_alt_m_);
     req->yaw = static_cast<float>(locked_compass_deg_);
     last_request_time_ = now();
     auto far = takeoff_client_->async_send_request(req);
@@ -2025,10 +2037,12 @@ private:
   rclcpp::Subscription<std_msgs::msg::UInt32>::SharedPtr recon_ack_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr bucket_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr global_fix_sub_;
-  // 地面海拔（AMSL）：起飞命令高度 = 地面海拔 + takeoff_alt_m
-  // （NAV_TAKEOFF param7=MSL；2026-10-06 修高度基准 bug）
+  // 地面海拔（AMSL）：起飞命令高度 = 锁框架时冻结的地面海拔 + takeoff_alt_m
+  // （NAV_TAKEOFF param7=MSL；2026-10-06 修高度基准 bug，10-07 二次修=锁框架冻结）
   double ground_amsl_m_ = 0.0;
   bool ground_amsl_valid_ = false;
+  bool takeoff_base_frozen_ = false;
+  double takeoff_base_amsl_ = 0.0;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr setpoint_pub_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr mission_state_pub_;
