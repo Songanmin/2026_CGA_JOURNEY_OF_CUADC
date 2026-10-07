@@ -669,8 +669,14 @@ private:
   void state_callback(const mavros_msgs::msg::State::SharedPtr msg)
   {
     const bool was_guided = guided_active_;
+    const bool prev_armed = was_armed_.value_or(msg->armed);  // 首帧不视为边沿
     fcu_state_ = *msg;
     guided_active_ = fcu_state_.connected && fcu_state_.mode == "GUIDED";
+    // 解锁上升沿：全部任务高度以解锁点地面为基准（2026-10-07 定案）
+    if (!prev_armed && fcu_state_.armed) {
+      on_armed_edge();
+    }
+    was_armed_ = fcu_state_.armed;
     // 飞手切走 GUIDED = 人工接管（SSOT §5.1 旁路）：立即停发目标点并退让
     if (was_guided && !guided_active_ && autonomous_state(state_)) {
       publish_setpoint_enabled_ = false;
@@ -870,13 +876,9 @@ private:
     frame_locked_ = true;
     build_search_route();
     build_recon_route();
-    // 起飞高度基准冻结（2026-10-07 二次修）：锁框架时机体必在地面且未解锁，
-    // 此处一次性冻结地面海拔——飞行中实时采样会把"当前高度"当"地面"，
-    // 起飞目标=当前高+2.5 引发爬升失控（10-07 12:5x 冲高 9.5m 实录）
-    if (ground_amsl_valid_) {
-      takeoff_base_amsl_ = ground_amsl_m_;
-      takeoff_base_frozen_ = true;
-    }
+    // 注：起飞高度基准不在锁框架冻结（2026-10-07 定案）——锁框架可能发生在
+    // 空中启动场景（10-07 12:5x 冲高 9.5m 实录）；权威基准=解锁上升沿
+    // （on_armed_edge：任务 z 原点重锚=解锁点地面 + 起飞 AMSL 同刻冻结）
     RCLCPP_INFO(
       get_logger(), "任务坐标系已锁定: home=(%.2f, %.2f, %.2f) 航向=%.1f°",
       home_->x, home_->y, home_->z, locked_compass_deg_);
@@ -1729,6 +1731,27 @@ private:
     return tracker_ && (t - tracker_->target->last_vision_t) <= align_servo_watchdog_s_;
   }
 
+  /// 解锁上升沿（2026-10-07 定案）：全部任务高度以解锁点地面为基准——
+  /// 任务坐标系 z 原点重锚到当前（解锁点地面），航线重建，起飞 AMSL 同刻冻结。
+  /// 若节点晚于解锁启动（首帧即 armed=true）则无上升沿→基准不冻结→
+  /// takeoff 拒发 + TAKEOFF 空中守卫拦截（fail-closed，落地重解锁即恢复）
+  void on_armed_edge()
+  {
+    if (home_.has_value()) {
+      home_->z = position_.z;    // 任务 z 原点 = 解锁点地面（搜索/侦察/返航/对准全重锚）
+      build_search_route();
+      build_recon_route();
+    }
+    if (ground_amsl_valid_) {
+      takeoff_base_amsl_ = ground_amsl_m_;
+      takeoff_base_frozen_ = true;
+    }
+    RCLCPP_INFO(get_logger(),
+      "解锁基准: 任务z原点=%.2fm（解锁点地面）, 起飞AMSL=%.1fm%s",
+      home_.has_value() ? home_->z : 0.0, takeoff_base_amsl_,
+      takeoff_base_frozen_ ? "" : "（无效:无海拔采样）");
+  }
+
   /// 视觉起飞门禁（SSOT §5.4：起飞前 ≥3 帧有效；无视觉模式/关闭时不拦）
   bool vision_takeoff_gate_ok() const
   {
@@ -2043,6 +2066,7 @@ private:
   bool ground_amsl_valid_ = false;
   bool takeoff_base_frozen_ = false;
   double takeoff_base_amsl_ = 0.0;
+  std::optional<bool> was_armed_;   ///< 解锁上升沿检测（首帧不视为边沿）
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr setpoint_pub_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr mission_state_pub_;
