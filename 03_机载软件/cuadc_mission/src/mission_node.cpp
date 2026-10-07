@@ -998,6 +998,12 @@ private:
           // 视觉起飞门禁（SSOT §5.4：起飞前 ≥3 帧有效；M1 无视觉模式跳过）
           if (vision_takeoff_gate_ok()) {
             request_takeoff();
+          } else {
+            // 2026-10-07 补：门禁拦截此前完全静默，台架无摄像头时表现为
+            // 「TAKEOFF 60s 零日志超时」排障三日不可见——必须留痕
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+              "视觉起飞门禁未过: %d/%d 帧（感知在流吗？台架无视觉验证起飞链请用 --no-vision）",
+              vision_valid_frames_, vision_takeoff_min_frames_);
           }
         }
         if (relative_altitude() >= takeoff_alt_m_ * 0.90) {
