@@ -26,9 +26,11 @@ SERIAL3_PROTOCOL,5
 SERIAL3_BAUD,115
 GPS_SAVE_CFG,2
 EK3_SRC1_POSXY,3
-# 高度源=GNSS（2026-10-08 用户定案「实际高度=RTK 推送」全切：1=Baro 作废；
-# Jetson 任务高度体系=RTK−上电基准，与此键配套，须同时生效；懒加载组，两遍法导入）
-EK3_SRC1_POSZ,3
+# 高度源维持气压计=1（2026-10-08 晚借鉴定案，原 3 作废勿回写：hgd 全仓从未动
+# EK3_SRC 实战可飞 + Re0 手册 S50「不能仅因'更准'就改 EK3_SRC1_POSZ」；Jetson
+# 任务高度体系=RTK−上电基准是机载判读口径，与 FC 闭环源解耦，0.9×/落地判定
+# 已有 odom/landed_state 载体修正兜底；待 RTK base 外场 Fixed 复验后再重评）
+EK3_SRC1_POSZ,1
 EK3_SRC1_VELXY,3
 EK3_SRC1_VELZ,3
 EK3_SRC1_YAW,1

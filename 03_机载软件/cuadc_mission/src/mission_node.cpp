@@ -17,7 +17,7 @@
 //   [已实现] 感知接入（PoseArray 薄契约 + 哨兵校验 + P0.4 插值换算世界系）
 //            + SEARCH 目标锁定五步（drop_logic::BucketMap）
 //            + ALIGN 两段对准（粗 0.15/精 0.08 + 一次重捕获 + 超时弃桶）
-//            + RELEASE 八门控（含反盲投 target_age）+ 单发舵机（DO_SET_SERVO）
+//            + RELEASE 九门控（含反盲投 target_age）+ 单发舵机（DO_SET_SERVO）
 //   [安全] enable_release_output=false 为干跑模式（只打日志不发舵机）；
 //          m1_no_vision_mode=true 时 SEARCH/ALIGN/RELEASE 全部旁路（无视觉演练）
 //   [未开始] safety_monitor 独立进程、原地小幅搜索降级（M4）
@@ -45,12 +45,22 @@
 //     差（GNSS 分钟级漂移 ±5m 地面误触拒飞）；0.9× 完成判据增 odom 或分支
 //     （单点 GPS 垂直噪声 ±2~4m 防 Takeoff timeout）+ 命令未发出不判完成
 //
-// 2026-10-08 落地判定改三级设计（用户拍板，平移哈工大 hgd_cudac 8_20 生产版）：
+// 2026-10-08 落地判定改三级设计（用户拍板，平移哈工大 hgd_cudac 8_20 版；
+//   实飞版 v16 同款 landed_state 主判据，10-08 晚考古证实）：
 //   - 主判据=FC 自身 landed_state（EXTENDED_SYS_STATE，落地检测器内部量，与
 //     GNSS 垂直精度无关）；明确非地面状态一律判否——绝不允许高度读数把空中
 //     报告翻转成 DISARM；兜底=odom 相对高硬钳 ≤min(0.30,0.10)+速度门限
 //   - 解除原红线②：GNSS 0.30m 判据单点解下不可用 → 落地判定与 GNSS 解耦，
 //     基本 GPS 下自动上锁（桨停转着陆分）恢复可用
+//
+// 2026-10-08 借鉴哈工大 hgd_cudac ws_offboard 2026-8-20 版（详见当日工作
+// 日志与 SSOT §5.3 参考实现节）：
+//   - LOCK_FRAME 增位置静止判据：水平速度 ≤lock_position_max_speed_m_s(0.15)
+//     持续与航向同窗才放行——防「边滑边锁」（其 position_lock_stability_s 同款）
+//   - 释放八门控→九门控：增角速度 ≤release_max_ang_rate_deg_s(5°/s，odom 三轴
+//     模长)——倾角瞬时值可过零通过而机体正在振荡，速度型门控补该盲区
+//   - PILOT_OVERRIDE 后不再向 FC 发任何新指令（stow 重试门闸）——借鉴其
+//     command_authority「故障不得恢复软件控制权」语义的单节点等价实现
 //
 // 安全铁律（SSOT §7）：
 //   1. 每一版必须先过 SITL 再上真机；真机首测拆桨；
@@ -174,7 +184,8 @@ enum class State
   // ---- 准备阶段（地面）----
   WAIT_FCU,         ///< 等飞控连接（MAVROS ↔ Pixhawk 握手）
   WAIT_NAV_STABLE,  ///< 等定位 + 罗盘可用
-  LOCK_FRAME,       ///< 锁定任务坐标系：航向 2s 内变化 ≤2° 才放行（防罗盘漂移）
+  LOCK_FRAME,       ///< 锁定任务坐标系：航向 2s 内变化 ≤2° + 机体静止（水平
+                    ///< ≤0.15m/s 持续同窗）才放行（防罗盘漂移/边滑边锁）
   PRESTREAM,        ///< 在起飞点预发 setpoint 1.5s（切 GUIDED 前必须已有目标流）
   WAIT_GUIDED,      ///< 等飞手切 GUIDED（= 飞手最终确认）
   WAIT_ARM,         ///< 等解锁（默认飞手手动；auto_arm_on_guided 才自动）
@@ -182,7 +193,7 @@ enum class State
   TAKEOFF,          ///< CommandTOL 起飞，0.9×目标高后切 setpoint
   SEARCH,           ///< 2.5m 蛇形搜索；M1 演练=飞预设航线，正式=等感知锁定独立筒
   ALIGN,            ///< 粗对准（M3：目标锁定五步之后，fail-closed）
-  RELEASE,          ///< 八门控投放 ×2（M3，fail-closed）
+  RELEASE,          ///< 九门控投放 ×2（M3，fail-closed）
   // ---- 侦察段 ----
   RECON_CLIMB,      ///< 爬到侦察高度
   RECON_SURVEY,     ///< 蛇形 6 航点 + 每点拍照请求/确认（1s 超时兜底）
@@ -281,7 +292,7 @@ public:
         }
       });
 
-    // 落地检测（2026-10-08 采纳哈工大 hgd_cudac 8_20 生产版设计）：FC 自报
+    // 落地检测（2026-10-08 采纳哈工大 hgd_cudac 8_20 版设计，实飞版 v16 同款）：FC 自报
     // EXTENDED_SYS_STATE.landed_state 是落地判定的权威源——来自飞控落地检测器
     // （垂直速度+油门+EKF 内部量），与 GNSS 垂直精度完全无关，基本 GPS 下照常工作
     extended_state_sub_ = create_subscription<mavros_msgs::msg::ExtendedState>(
@@ -357,6 +368,8 @@ private:
     declare_parameter<double>("heading_lock_window_s", 2.0);
     declare_parameter<double>("heading_lock_tol_deg", 2.0);
     declare_parameter<double>("heading_lock_timeout_s", 30.0);
+    // LOCK_FRAME 位置静止判据（2026-10-08 借鉴 hgd：防边滑边锁；持续窗=航向同窗）
+    declare_parameter<double>("lock_position_max_speed_m_s", 0.15);
 
     declare_parameter<double>("prestream_hold_s", 1.5);
     declare_parameter<double>("takeoff_timeout_s", 60.0);
@@ -458,12 +471,13 @@ private:
     declare_parameter<double>("align_stable_s", 0.8);
     declare_parameter<double>("align_timeout_s", 12.0);
 
-    // ---- M3 释放八门控（SSOT §5.2）----
+    // ---- M3 释放九门控（SSOT §5.2）----
     declare_parameter<double>("release_max_horiz_err_m", 0.10);
     declare_parameter<double>("release_max_vert_err_m", 0.10);
     declare_parameter<double>("release_max_hspeed_m_s", 0.08);
     declare_parameter<double>("release_max_vspeed_m_s", 0.05);
     declare_parameter<double>("release_max_tilt_deg", 5.0);
+    declare_parameter<double>("release_max_ang_rate_deg_s", 5.0);
     declare_parameter<double>("release_max_yaw_err_deg", 5.0);
     declare_parameter<double>("release_stability_s", 0.8);
     declare_parameter<double>("release_hold_s", 1.5);
@@ -511,6 +525,8 @@ private:
     heading_lock_window_s_ = std::max(0.5, get_parameter("heading_lock_window_s").as_double());
     heading_lock_tol_deg_ = std::max(0.5, get_parameter("heading_lock_tol_deg").as_double());
     heading_lock_timeout_s_ = std::max(5.0, get_parameter("heading_lock_timeout_s").as_double());
+    lock_position_max_speed_m_s_ = std::max(
+      0.05, get_parameter("lock_position_max_speed_m_s").as_double());
 
     prestream_hold_s_ = std::max(0.5, get_parameter("prestream_hold_s").as_double());
     takeoff_timeout_s_ = std::max(10.0, get_parameter("takeoff_timeout_s").as_double());
@@ -632,6 +648,8 @@ private:
     gp.max_vspeed_m_s = std::max(
       0.01, get_parameter("release_max_vspeed_m_s").as_double());
     gp.max_tilt_deg = std::max(1.0, get_parameter("release_max_tilt_deg").as_double());
+    gp.max_angular_rate_deg_s = std::max(
+      1.0, get_parameter("release_max_ang_rate_deg_s").as_double());
     gp.max_yaw_err_deg = std::max(
       1.0, get_parameter("release_max_yaw_err_deg").as_double());
     gp.stability_s = std::max(0.2, get_parameter("release_stability_s").as_double());
@@ -759,6 +777,11 @@ private:
     horizontal_speed_m_s_ = std::hypot(
       msg->twist.twist.linear.x, msg->twist.twist.linear.y);
     vertical_speed_m_s_ = msg->twist.twist.linear.z;
+    // 角速度三轴模长（deg/s）：九门控第 7 项输入（2026-10-08 借鉴 hgd）
+    const auto & angular = msg->twist.twist.angular;
+    angular_rate_deg_s_ = std::sqrt(
+      angular.x * angular.x + angular.y * angular.y + angular.z * angular.z) *
+      (180.0 / M_PI);
     have_odom_ = true;
     last_odom_time_ = now();
 
@@ -804,7 +827,8 @@ private:
     }
   }
 
-  /// 姿态：倾角（机体系 z 轴与铅垂夹角）+ 与锁定航向的偏差（八门控用）。
+  /// 姿态：倾角（机体系 z 轴与铅垂夹角）+ 与锁定航向的偏差（九门控用；角速度
+  /// 三轴模长在 odom 回调另算）。
   /// 单位四元数下 cos(倾角) = 1 − 2(qx² + qy²)。
   void pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
   {
@@ -993,7 +1017,12 @@ private:
   void tick()
   {
     check_service_results();
-    service_pending_servo();
+    // 飞手接管后不再向 FC 发任何新指令（2026-10-08 借鉴 hgd command_authority：
+    // PILOT_OVERRIDE 为最高优先级终态，故障收尾不得恢复软件控制权）；
+    // check_service_results 只回收在途结果不重发，照常运行
+    if (state_ != State::PILOT_OVERRIDE) {
+      service_pending_servo();
+    }
 
     // 任务总超时看门狗（SSOT §5.4：240s，比赛 5 分钟）；
     // 一旦进入返航/降落段不再受它约束，让飞机安全回家
@@ -1023,22 +1052,28 @@ private:
         }
         break;
 
-      case State::LOCK_FRAME:
+      case State::LOCK_FRAME: {
         publish_setpoint_enabled_ = false;
+        // 两个判据都必须每拍推进——短路求值会冻住静止计时器（10-08 借鉴 hgd
+        // 增位置静止判据：罗盘稳但机体被推动时，锁出的航线会整体平移）
+        const bool heading_ok = heading_locked();
+        const bool still_ok = position_still();
         if (!fcu_state_.connected) {
           enter(State::WAIT_FCU);
         } else if (fcu_state_.armed) {
           fail("Aircraft armed before mission frame lock");
         } else if (!navigation_ready()) {
           heading_lock_since_.reset();  // 定位断了重新计时
-        } else if (heading_locked()) {
+          still_since_.reset();
+        } else if (heading_ok && still_ok) {
           lock_frame();
           publish_setpoint_enabled_ = true;
           enter(State::PRESTREAM);
         } else if ((now() - state_enter_time_).seconds() > heading_lock_timeout_s_) {
-          fail("Heading drift beyond lock tolerance (罗盘漂移？检查校准与干扰)");
+          fail("LOCK_FRAME 超时：航向漂移超容差或机体未静止（罗盘漂移/震动？检查校准与干扰）");
         }
         break;
+      }
 
       case State::PRESTREAM:
         target_ = home_.value_or(position_);
@@ -1486,7 +1521,7 @@ private:
     }
   }
 
-  /// 释放（SSOT §5.2 释放八门控）：全过且连续稳定+保持才 fire；6s 超时弃桶。
+  /// 释放（SSOT §5.2 释放九门控）：全过且连续稳定+保持才 fire；6s 超时弃桶。
   /// 反盲投由 target_age 门限保证——目标估计超龄永远到不了 fire。
   /// A4-1：fire 指令被 FCU 拒绝 = 瓶未脱，回退 sequencer 重投且计数不推进
   /// （旧实现拒绝只打 WARN 照样计数，真投虚报）；超时=结果未知，计数打标。
@@ -1504,6 +1539,7 @@ private:
     s.hspeed_m_s = horizontal_speed_m_s_;
     s.vspeed_m_s = vertical_speed_m_s_;
     s.tilt_deg = tilt_deg_;
+    s.angular_rate_deg_s = angular_rate_deg_s_;
     s.yaw_err_deg = yaw_err_deg_;
     s.target_age_s = t - tracker_->target->last_vision_t;
     s.vx_m_s = vx_local_;
@@ -1812,7 +1848,7 @@ private:
       mavros_msgs::msg::ExtendedState::LANDED_STATE_ON_GROUND;
   }
 
-  /// 落地判定（2026-10-08 采纳哈工大 hgd_cudac 8_20 生产版三级设计；配合 LAND 态
+  /// 落地判定（2026-10-08 采纳哈工大 hgd_cudac 8_20 版三级设计，实飞版 v16 同款；配合 LAND 态
   /// 稳定 1.5s 确认）：
   /// ①主判据 = FC 自身 landed_state——落地检测器内部量，与 GNSS 垂直精度无关，
   ///   基本 GPS 下照常工作（解我方原红线②死结）；明确的非地面状态一律判否，
@@ -1857,6 +1893,21 @@ private:
       return false;
     }
     return (now() - *heading_lock_since_).seconds() >= heading_lock_window_s_;
+  }
+
+  /// LOCK_FRAME 位置静止判据（2026-10-08 借鉴 hgd ws_offboard）：水平速度 ≤阈值
+  /// 持续与航向同窗；超速即重新计时。
+  bool position_still()
+  {
+    if (horizontal_speed_m_s_ > lock_position_max_speed_m_s_) {
+      still_since_.reset();
+      return false;
+    }
+    if (!still_since_.has_value()) {
+      still_since_ = now();
+      return false;
+    }
+    return (now() - *still_since_).seconds() >= heading_lock_window_s_;
   }
 
   // ===========================================================================
@@ -2336,6 +2387,7 @@ private:
   cuadc_odom::InterpParams interp_params_;   ///< P0.4 判定参数（odom_interp.hpp）
   std::optional<rclcpp::Time> landing_stable_since_;
   std::optional<rclcpp::Time> heading_lock_since_;
+  std::optional<rclcpp::Time> still_since_;     ///< LOCK_FRAME 静止判据计时
 
   // ---- 布尔标志 ----
   bool guided_active_ = false;
@@ -2422,11 +2474,13 @@ private:
   // ---- 坐标系缓存 ----
   double horizontal_speed_m_s_ = 0.0;
   double vertical_speed_m_s_ = 0.0;
+  double angular_rate_deg_s_ = 0.0;             ///< odom 三轴角速度模长（九门控输入）
   double current_compass_deg_ = 0.0;
   double current_heading_enu_ = 0.0;
   double mission_yaw_ = 0.0;
   double locked_compass_deg_ = 0.0;
   double heading_lock_ref_deg_ = 0.0;
+  double lock_position_max_speed_m_s_ = 0.15;   ///< LOCK_FRAME 静止门限
   double yaw_qz_ = 0.0;
   double yaw_qw_ = 1.0;
 

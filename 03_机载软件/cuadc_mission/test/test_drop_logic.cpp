@@ -378,7 +378,8 @@ static void test_release_gate()
       }
     }
     CHECK(!fired);
-    {   // 反盲投核心：目标超龄 → 永远不开火，直到超时弃桶
+  }
+  {   // 反盲投核心：目标超龄 → 永远不开火，直到超时弃桶
     ReleaseGate g;
     GateVerdict abort_verdict{GateStatus::kIdle, ""};
     for (int i = 0; i < 80; ++i) {

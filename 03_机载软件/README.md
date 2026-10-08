@@ -7,7 +7,7 @@
 
 | 项 | 内容 | 里程碑状态 |
 |---|---|---|
-| `cuadc_mission/` | 任务状态机：全生命周期状态机 + 感知接入 + 目标锁定 + 两段对准 + 八门控投放（SSOT §5.1/§5.2） | **M1 骨架 + M3 投放链就绪，待 SITL 验证**（C++ 三件单测 252 checks + Python 58 例全绿，09-20；09-20 五批修复与重构**待 fc_regression_m3.sh 上机回归**） |
+| `cuadc_mission/` | 任务状态机：全生命周期状态机 + 感知接入 + 目标锁定 + 两段对准 + 九门控投放（SSOT §5.1/§5.2） | **M1 骨架 + M3 投放链就绪，待 SITL 验证**（C++ 三件单测 252 checks + Python 58 例全绿，09-20；09-20 五批修复与重构**待 fc_regression_m3.sh 上机回归**） |
 | `cuadc_interfaces/` | 自定义消息包：侦察判读 `ReconClassification/ReconMarker`（契约 §5）；SafetyStatus 等 M4 接口后续在此追加 | 就绪 |
 | `cuadc_perception/` | 感知包：侦察判读 `hazard_recon_node`（已上机生产）+ **白桶感知 `bucket_perception_node`（M2，双通道 seg+LAB）** + **H 圆精准降落 `h_circle_node`（M4，LANDING_TARGET→PLND）** + 公共算法库 `vision_core.py`（纯算法可离线单测）+ 契约校验器 + 判读融合/查看器/仿真替身 | 09-13 全链代码落地，48 例单测全绿，待上机联调 |
 | `scripts/` | `setup_env_ubuntu22.sh`（环境一键装）+ `run_sitl.sh`（SITL 全链路一键拉起）+ `calibrate_camera.py`（相机内参棋盘标定 → calib.yaml，直供节点 calib_path）+ `recon_eval.py`（判读融合离线评估：genseq 合成序列/detect 出缓存/replay 纯 Python 回放扫掠，移动模糊场景融合规则准入闸门，2026-09-27）+ `kacha`（咔嚓·运行时拍照一键工具：单拍/连拍/画框/只存命中，订阅相机流不抢设备，自动补 ROS 环境，Jetson `~/kacha`，2026-09-28）+ `snap_timer.py`（定时抓帧留证，kacha 的长间隔版） | 就绪 |
@@ -39,7 +39,7 @@ cuadc_mission/
 ├── include/cuadc_mission/drop_logic.hpp   # 投放决策核心 C++17（tools/drop_logic.py 镜像，159 checks）
 ├── include/cuadc_mission/route_logic.hpp  # 航线/坐标换算纯函数（tools/route_logic.py 镜像，66 checks）
 ├── include/cuadc_mission/odom_interp.hpp  # P0.4 插值判定核心（tools/odom_interp.py 镜像，27 checks）
-├── tools/drop_logic.py           # 投放决策核心（纯逻辑规范）：锁定五步/冻结/重捕获/八门控/单发舵机
+├── tools/drop_logic.py           # 投放决策核心（纯逻辑规范）：锁定五步/冻结/重捕获/九门控/单发舵机
 ├── tools/route_logic.py / odom_interp.py  # 上述 hpp 的 Python 镜像（双端纪律）
 ├── tools/drop_sim.py             # 闭环仿真：运动学+视觉噪声+舵机延迟，蒙特卡洛验证
 ├── tools/test_drop_logic.py      # 决策核心单元测试（30 例，本机可跑）
@@ -106,7 +106,7 @@ CEP 中位 5.0cm，五条安全不变量（单发/新鲜度/不同筒/弃桶拉�
   排名稳定 0.8s/拉黑），航线尽头自动降级"2 筒 + 1 未知"
 - ALIGN：粗 0.15m → 精 0.08m → 稳定 0.8s；丢视觉一次重捕获，再丢弃桶拉黑，
   超时 12s 弃桶——**绝不按冻结坐标盲投**（门控内建 target_age ≤0.5s）
-- RELEASE：八门控连续 2.3s（稳定 0.8 + 保持 1.5）→ `DropSequencer` 单发舵机
+- RELEASE：九门控连续 2.3s（稳定 0.8 + 保持 1.5，10-08 增角速度 ≤5°/s）→ `DropSequencer` 单发舵机
   （DO_SET_SERVO，0.7s 后回仓，回仓指令逐拍重试）→ 拉黑 → 下一瓶
 - 安全开关：`enable_release_output=false` 干跑（默认，只打日志不发舵机）；
   `m1_no_vision_mode=true` 全链路旁路演练

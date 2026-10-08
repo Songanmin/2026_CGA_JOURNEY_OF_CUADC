@@ -29,10 +29,13 @@ cuadc_mission:
 
     waypoint_accept_radius_m: 0.40   # 航点接受半径
 
-    # ---- 航向锁定（LOCK_FRAME：2s 内变化 ≤2° 才锁坐标系）----
+    # ---- 航向+静止锁定（LOCK_FRAME：2s 内变化 ≤2° 且机体静止才锁坐标系）----
     heading_lock_window_s: 2.0
     heading_lock_tol_deg: 2.0
-    heading_lock_timeout_s: 30.0     # 锁不上（罗盘漂移）超时判失败
+    heading_lock_timeout_s: 30.0     # 锁不上（罗盘漂移/机体未静止）超时判失败
+    lock_position_max_speed_m_s: 0.15  # 静止判据：水平速度持续同窗 ≤此值（10-08 借鉴
+                                       # hgd：防「边滑边锁」——罗盘稳但机体被推动时
+                                       # 锁出的航线整体平移）
 
     # ---- 超时 ----
     prestream_hold_s: 1.5            # 切 GUIDED 前预发 setpoint 时长
@@ -138,13 +141,15 @@ cuadc_mission:
     align_stable_s: 0.8
     align_timeout_s: 12.0
 
-    # ==== M3 释放八门控（SSOT §5.2；含反盲投 target_age）====
+    # ==== M3 释放九门控（SSOT §5.2；含反盲投 target_age）====
     release_max_horiz_err_m: 0.10
     release_max_vert_err_m: 0.10
     release_max_hspeed_m_s: 0.08
     release_max_vspeed_m_s: 0.05
     release_max_tilt_deg: 5.0
     release_max_yaw_err_deg: 5.0
+    release_max_ang_rate_deg_s: 5.0  # 三轴角速度模长（10-08 借鉴 hgd 九门控新增：
+                                     # 倾角瞬时值可过零通过而机体正在振荡）
     release_stability_s: 0.8         # 连续无违约稳定
     release_hold_s: 1.5              # 稳定后再保持（合计连续 2.3s）
     release_gate_timeout_s: 6.0      # 进 RELEASE 起 6s 未凑齐 → 弃桶
