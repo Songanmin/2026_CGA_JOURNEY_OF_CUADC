@@ -213,10 +213,27 @@ class TestTargetTracker(unittest.TestCase):
 class TestReleaseGate(unittest.TestCase):
 
     def sample(self, t, horiz=0.03, vert=0.02, hs=0.03, vs=0.01,
-               tilt=1.0, yaw=1.0, age=0.1, vx=0.0, vy=0.0):
+               tilt=1.0, yaw=1.0, age=0.1, vx=0.0, vy=0.0, ang=0.0):
         return GateSample(horiz_err_m=horiz, vert_err_m=vert, hspeed_m_s=hs,
                           vspeed_m_s=vs, tilt_deg=tilt, yaw_err_deg=yaw,
-                          target_age_s=age, vx_m_s=vx, vy_m_s=vy, t=t)
+                          target_age_s=age, vx_m_s=vx, vy_m_s=vy, t=t,
+                          angular_rate_deg_s=ang)
+
+    def test_angular_rate_gate_blocks(self):
+        """第 7 门（10-08 借鉴 hgd）：角速度超限 = 振荡型失稳，禁投且计时清零。"""
+        g = ReleaseGate(GateParams())
+        res, _ = self.feed_ok(g, 0.0, n=80, ang=8.0)   # 8s 全部角速度超限
+        states = [s for s, _ in res]
+        self.assertNotIn('fire', states)
+        abort_entry = [r for r in res if r[0] == 'abort'][0]
+        self.assertIn('angular_rate', abort_entry[1])
+
+    def test_angular_rate_violation_resets_timers(self):
+        g = ReleaseGate(GateParams())
+        self.feed_ok(g, 0.0, n=10)                     # 稳 1.0s
+        g.feed(self.sample(1.05, ang=30.0))            # 角速度违约
+        res, _ = self.feed_ok(g, 1.1, n=10)            # 重新计 1.0s，不够 2.3s
+        self.assertFalse(any(s == 'fire' for s, _ in res))
 
     def feed_ok(self, gate, t0, dt=0.1, n=30, **kw):
         """连续喂合格样本，返回 (结果列表, 末时刻)。"""

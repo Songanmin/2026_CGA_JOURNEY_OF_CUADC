@@ -11,7 +11,7 @@
 //   ALIGN    TargetTracker：活动估计（新鲜度=反盲投资格）；粗 0.15 → 精 0.08m；
 //            丢视觉只允许一次重捕获，再丢 = 弃桶（禁止按冻结坐标盲投）
 //   RELEASE  冻结瞄准点（冻结时活动估计 + 标定投放口偏置 + 弹道前移）
-//            → 八门控连续稳定 0.8s + 保持 1.5s（6s 超时弃桶）→ 单发舵机 0.7s
+//            → 九门控连续稳定 0.8s + 保持 1.5s（6s 超时弃桶）→ 单发舵机 0.7s
 //
 // 输入输出全部是世界系（本地 ENU，米）；视觉帧必须先经 mission_node 的
 // interpolate_odom() + body_to_local_at()（P0.4 取帧时刻插值）再喂进来。
@@ -452,7 +452,7 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// RELEASE 段：八门控 + 弹道前移 + 单发舵机
+// RELEASE 段：九门控 + 弹道前移 + 单发舵机（2026-10-08 借鉴 hgd 增角速度项）
 // ---------------------------------------------------------------------------
 struct GateParams {
   double max_horizontal_error_m = 0.10;
@@ -461,6 +461,7 @@ struct GateParams {
   double max_vspeed_m_s = 0.05;
   double max_tilt_deg = 5.0;
   double max_yaw_err_deg = 5.0;
+  double max_angular_rate_deg_s = 5.0;  ///< 三轴角速度模长（10-08 借鉴 hgd：防倾角过零振荡型失稳）
   double stability_s = 0.8;             ///< 连续无违约稳定
   double hold_s = 1.5;                  ///< 达稳定后再保持（合计连续 2.3s）
   double timeout_s = 6.0;               ///< 进入 RELEASE 起 6s 未凑齐 → 弃桶
@@ -476,6 +477,7 @@ struct GateSample {
   double vspeed_m_s = 0.0;
   double tilt_deg = 0.0;
   double yaw_err_deg = 0.0;
+  double angular_rate_deg_s = 0.0;      ///< 三轴角速度模长（deg/s），mission 填 odom twist
   double target_age_s = 0.0;
   double vx_m_s = 0.0;                  ///< 世界系速度（弹道前移 sanity 用）
   double vy_m_s = 0.0;
@@ -558,7 +560,7 @@ private:
   std::pair<bool, std::string> instant(const GateSample & s) const
   {
     const double vals[] = {s.horiz_err_m, s.vert_err_m, s.hspeed_m_s, s.vspeed_m_s,
-      s.tilt_deg, s.yaw_err_deg, s.target_age_s, s.t};
+      s.tilt_deg, s.angular_rate_deg_s, s.yaw_err_deg, s.target_age_s, s.t};
     for (double v : vals) {
       if (!std::isfinite(v)) {
         return {false, "non_finite"};
@@ -581,6 +583,9 @@ private:
     }
     if (s.tilt_deg > p_.max_tilt_deg) {
       return {false, "tilt"};
+    }
+    if (s.angular_rate_deg_s > p_.max_angular_rate_deg_s) {
+      return {false, "angular_rate"};
     }
     if (s.yaw_err_deg > p_.max_yaw_err_deg) {
       return {false, "yaw_error"};

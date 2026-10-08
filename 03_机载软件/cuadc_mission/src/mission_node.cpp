@@ -31,6 +31,27 @@
 //   - ALIGN/RELEASE 视觉速度伺服（参数化默认关，SSOT §5.2-209，失新回退位置保持）
 //   - sim_release_bridge 仿真投放判分桥（SITL 联动 virtual_drop_judge_node）
 //
+// 2026-10-08 悬停识别定案（"悬停优先+蛇形兜底"，详见当日工作日志）：
+//   - SEARCH 首段转场改指投放区中心识别点（search_hover_x/y_m），定点悬停建图，
+//     锁定即进 ALIGN（省蛇形 ~19s）；窗口（search_hover_timeout_s，到位起算）
+//     到期未锁转蛇形兜底——锁定五步/降级预案/60s 提前降级全部不变
+//   - 依据：单点悬停 2.5m 覆盖半宽 ≈1.32m 盖不住 2~5m 桶距，纯单点方案否决
+//   - m1_no_vision_mode 恒跳过悬停段（无锁定可能，不白烧窗口）
+//
+// 2026-10-08 启动门禁放宽（用户定案"3D DGPS 即可启动"）：
+//   - 门禁语义显式化：任意有效 fix 即锁框架（mavros fix_type>2 → 3D/DGPS/RTK
+//     一律 STATUS_FIX），首个 fix 打 INFO、持续 NO_FIX 打节流 WARN 留痕
+//   - 配套载体修正（3D DGPS 启动后真能起飞）：TAKEOFF「已在空中」守卫改 odom
+//     差（GNSS 分钟级漂移 ±5m 地面误触拒飞）；0.9× 完成判据增 odom 或分支
+//     （单点 GPS 垂直噪声 ±2~4m 防 Takeoff timeout）+ 命令未发出不判完成
+//
+// 2026-10-08 落地判定改三级设计（用户拍板，平移哈工大 hgd_cudac 8_20 生产版）：
+//   - 主判据=FC 自身 landed_state（EXTENDED_SYS_STATE，落地检测器内部量，与
+//     GNSS 垂直精度无关）；明确非地面状态一律判否——绝不允许高度读数把空中
+//     报告翻转成 DISARM；兜底=odom 相对高硬钳 ≤min(0.30,0.10)+速度门限
+//   - 解除原红线②：GNSS 0.30m 判据单点解下不可用 → 落地判定与 GNSS 解耦，
+//     基本 GPS 下自动上锁（桨停转着陆分）恢复可用
+//
 // 安全铁律（SSOT §7）：
 //   1. 每一版必须先过 SITL 再上真机；真机首测拆桨；
 //   2. 飞手切走 GUIDED = 人工接管，本节点立即停发目标点并退让（绝不抢权）；
@@ -56,6 +77,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include <mavros_msgs/msg/state.hpp>
+#include <mavros_msgs/msg/extended_state.hpp>
 #include <mavros_msgs/srv/command_bool.hpp>
 #include <mavros_msgs/srv/command_long.hpp>
 #include <mavros_msgs/srv/command_tol.hpp>
@@ -158,7 +180,7 @@ enum class State
   WAIT_ARM,         ///< 等解锁（默认飞手手动；auto_arm_on_guided 才自动）
   // ---- 任务主线 ----
   TAKEOFF,          ///< CommandTOL 起飞，0.9×目标高后切 setpoint
-  SEARCH,           ///< 2.0m 蛇形搜索；M1 演练=飞预设航线，正式=等感知锁定独立筒
+  SEARCH,           ///< 2.5m 蛇形搜索；M1 演练=飞预设航线，正式=等感知锁定独立筒
   ALIGN,            ///< 粗对准（M3：目标锁定五步之后，fail-closed）
   RELEASE,          ///< 八门控投放 ×2（M3，fail-closed）
   // ---- 侦察段 ----
@@ -211,7 +233,7 @@ public:
     load_parameters();
     log_effective_config();
 
-    // ---- 订阅：飞控状态 / 定位 / 罗盘 / 姿态 / 速度 / 侦察确认 / 感知检测 ----
+    // ---- 订阅：飞控状态 / 定位 / 罗盘 / 姿态 / 速度 / 侦察确认 / 感知检测 / 落地检测 ----
     state_sub_ = create_subscription<mavros_msgs::msg::State>(
       "/mavros/state", rclcpp::QoS(10).reliable(),
       std::bind(&CuadcMissionNode::state_callback, this, std::placeholders::_1));
@@ -233,15 +255,41 @@ public:
     bucket_sub_ = create_subscription<geometry_msgs::msg::PoseArray>(
       "/perception/drop_buckets_body", rclcpp::SensorDataQoS(),
       std::bind(&CuadcMissionNode::bucket_callback, this, std::placeholders::_1));
-    // 全球定位 fix（AMSL 海拔）：起飞命令高度基准（NAV_TAKEOFF param7=MSL，
-    // 2026-10-06 修：此前直发 takeoff_alt_m 被按海拔解释，场地海拔>3m 即被静默拒飞）
+    // GNSS/RTK 高度（NavSatFix.altitude，RTK 模块→FC→mavros）：**实际高度唯一源**
+    //（2026-10-08 用户定案：实际高度=RTK 推送高度，基准高度=上电冻结，任务相对
+    // 高度=两者之差；FC 高度源同步切 GNSS，EK3_SRC1_POSZ=3，命令/飞行/判读同系）。
+    // 启动门禁（2026-10-08 用户定案放宽）：任意有效 fix 即过——mavros 把
+    // fix_type>2（3D/3D+DGPS/RTK）统一映射 STATUS_FIX，不要求 RTK Float/Fixed；
+    // 完全无 fix 时 ground_amsl_valid_=false → 任务坐标锁定不进行（fail-closed：
+    // 室内无任何 fix 不可飞）。历史注：10-06 曾按「param7=MSL」语义修
+    // 「场地海拔>3m 静默拒飞」；10-07 查明本固件 param7=相对爬升量，海拔不进命令。
     global_fix_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
       "/mavros/global_position/global", rclcpp::SensorDataQoS(),
       [this](const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
         if (msg->status.status >= sensor_msgs::msg::NavSatStatus::STATUS_FIX) {
+          if (!ground_amsl_valid_) {
+            RCLCPP_INFO(get_logger(), "首个有效 GPS fix（3D/DGPS 及以上即过启动门禁）：海拔 %.2fm",
+              msg->altitude);
+          }
           ground_amsl_m_ = msg->altitude;
           ground_amsl_valid_ = true;
+          last_gps_time_ = now();
+          have_gps_ = true;
+        } else {
+          RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000,
+            "NavSatFix NO_FIX 帧（门禁只要 3D/DGPS；持续无 fix=锁不了框架不起飞）");
         }
+      });
+
+    // 落地检测（2026-10-08 采纳哈工大 hgd_cudac 8_20 生产版设计）：FC 自报
+    // EXTENDED_SYS_STATE.landed_state 是落地判定的权威源——来自飞控落地检测器
+    // （垂直速度+油门+EKF 内部量），与 GNSS 垂直精度完全无关，基本 GPS 下照常工作
+    extended_state_sub_ = create_subscription<mavros_msgs::msg::ExtendedState>(
+      "/mavros/extended_state", rclcpp::SensorDataQoS(),
+      [this](const mavros_msgs::msg::ExtendedState::SharedPtr msg) {
+        extended_state_ = *msg;
+        have_extended_state_ = true;
+        last_extended_state_time_ = now();
       });
 
     // ---- 发布：目标点 / 状态广播 / 侦察拍照请求 ----
@@ -314,12 +362,15 @@ private:
     declare_parameter<double>("takeoff_timeout_s", 60.0);
     declare_parameter<double>("mission_timeout_s", 240.0);
     declare_parameter<double>("odom_timeout_s", 1.0);
+    declare_parameter<double>("gps_timeout_s", 2.0);
     declare_parameter<double>("recon_photo_timeout_s", 1.0);
 
     declare_parameter<double>("landing_confirm_s", 1.5);
     declare_parameter<double>("landing_alt_gate_m", 0.30);
     declare_parameter<double>("landing_hspeed_gate_m_s", 0.20);
     declare_parameter<double>("landing_vspeed_gate_m_s", 0.15);
+    // landed_state 新鲜窗（2026-10-08 哈工大三级设计：过期才退 odom 高度兜底）
+    declare_parameter<double>("extended_state_timeout_s", 2.5);
 
     // 场地几何 = 仿真场地取值（RULE_MAPPING.md：投放区(30,0) 5m×8m；侦察区(55,0)同尺寸），
     // 上真机按赛场实测修订（见 config/mission_params.yaml 同名参数注释）
@@ -334,6 +385,13 @@ private:
     // 漂移，会凑出"稳定"的假航迹导致锁错目标。沉降期内只飞不喂图，等航向收敛。
     // 真值替身免疫此问题（其换算误差自相消），故 M3 五轮从未暴露。
     declare_parameter<double>("search_settle_s", 8.0);
+
+    // 悬停识别（悬停优先+蛇形兜底，2026-10-08 用户定案，SSOT §5.1）：首段转场
+    // 改指投放区中心识别点，到位后定点悬停建图，锁定即跳过蛇形；窗口到期未锁
+    // 转蛇形兜底。timeout=0 关闭该段；m1_no_vision_mode 恒跳过（无锁定可能）。
+    declare_parameter<double>("search_hover_x_m", 30.0);
+    declare_parameter<double>("search_hover_y_m", 0.0);
+    declare_parameter<double>("search_hover_timeout_s", 12.0);
 
     declare_parameter<double>("recon_x_m", 52.5);
     declare_parameter<double>("recon_lane_len_m", 5.0);
@@ -458,6 +516,7 @@ private:
     takeoff_timeout_s_ = std::max(10.0, get_parameter("takeoff_timeout_s").as_double());
     mission_timeout_s_ = std::max(30.0, get_parameter("mission_timeout_s").as_double());
     odom_timeout_s_ = std::max(0.2, get_parameter("odom_timeout_s").as_double());
+    gps_timeout_s_ = std::max(0.2, get_parameter("gps_timeout_s").as_double());
     recon_photo_timeout_s_ = std::max(0.2, get_parameter("recon_photo_timeout_s").as_double());
 
     landing_confirm_s_ = std::max(0.5, get_parameter("landing_confirm_s").as_double());
@@ -466,6 +525,8 @@ private:
       0.05, get_parameter("landing_hspeed_gate_m_s").as_double());
     landing_vspeed_gate_m_s_ = std::max(
       0.05, get_parameter("landing_vspeed_gate_m_s").as_double());
+    extended_state_timeout_s_ = std::max(
+      0.2, get_parameter("extended_state_timeout_s").as_double());
 
     search_x_min_m_ = get_parameter("search_x_min_m").as_double();
     search_x_max_m_ = get_parameter("search_x_max_m").as_double();
@@ -475,6 +536,10 @@ private:
       10.0, get_parameter("search_degrade_timeout_s").as_double());
     search_settle_s_ = std::max(
       0.0, get_parameter("search_settle_s").as_double());
+    search_hover_x_m_ = get_parameter("search_hover_x_m").as_double();
+    search_hover_y_m_ = get_parameter("search_hover_y_m").as_double();
+    search_hover_timeout_s_ = std::max(
+      0.0, get_parameter("search_hover_timeout_s").as_double());
 
     recon_x_m_ = get_parameter("recon_x_m").as_double();
     recon_lane_len_m_ = std::max(0.5, get_parameter("recon_lane_len_m").as_double());
@@ -672,7 +737,8 @@ private:
     const bool prev_armed = was_armed_.value_or(msg->armed);  // 首帧不视为边沿
     fcu_state_ = *msg;
     guided_active_ = fcu_state_.connected && fcu_state_.mode == "GUIDED";
-    // 解锁上升沿：全部任务高度以解锁点地面为基准（2026-10-07 定案）
+    // 解锁上升沿：只做起飞 AMSL 健康门冻结（fail-closed）。任务高度体系与解锁沿
+    // 无关——实际=RTK 推送、基准=上电冻结（lock_frame 完成），2026-10-08 用户定案
     if (!prev_armed && fcu_state_.armed) {
       on_armed_edge();
     }
@@ -864,7 +930,8 @@ private:
       ref.z + body.z};
   }
 
-  /// 锁定任务坐标系。注意 EKF origin ≠ 起飞点，任务原点必须取起飞瞬间 odom
+  /// 锁定任务坐标系。注意 EKF origin ≠ 起飞点，任务原点必须取上电瞬间（未解锁
+  /// 地面态）odom——本捕获即任务高度基准（2026-10-08 用户定案），此后不重锚
   void lock_frame()
   {
     home_ = position_;
@@ -876,17 +943,22 @@ private:
     frame_locked_ = true;
     build_search_route();
     build_recon_route();
-    // 注：起飞高度基准不在锁框架冻结（2026-10-07 定案）——锁框架可能发生在
-    // 空中启动场景（10-07 12:5x 冲高 9.5m 实录）；权威基准=解锁上升沿
-    // （on_armed_edge：任务 z 原点重锚=解锁点地面 + 起飞 AMSL 同刻冻结）
+    // 任务高度体系（2026-10-08 用户定案）：实际高度=RTK 推送（NavSatFix 海拔），
+    // 基准高度=上电时读取值——本函数一次性冻结，任务相对高度=实际−基准；
+    // FC 高度源同步切 GNSS（EK3_SRC1_POSZ=3），闭环/命令/判读同系。基准此后不改动。
+    // 注意 home z（odom 载体）与 RTK 基准同刻冻结，航线 setpoint z 仍走 odom 系
+    gps_base_alt_m_ = ground_amsl_m_;
+    gps_base_frozen_ = ground_amsl_valid_;
     RCLCPP_INFO(
-      get_logger(), "任务坐标系已锁定: home=(%.2f, %.2f, %.2f) 航向=%.1f°",
-      home_->x, home_->y, home_->z, locked_compass_deg_);
+      get_logger(), "任务坐标系已锁定: home=(%.2f, %.2f, %.2f) 航向=%.1f° RTK基准=%.2fm%s",
+      home_->x, home_->y, home_->z, locked_compass_deg_, gps_base_alt_m_,
+      gps_base_frozen_ ? "" : "（无效:无 RTK fix，fail-closed）");
   }
 
   /// 弓字形搜索航线：search_lanes 条平行带（沿 X 扫，带位沿 Y 均布），奇偶带交替方向。
-  /// 覆盖判据（test_route_logic 守门）：间距/2 ≤ 相机横向半覆盖 = 1.055×search_alt。
-  /// 2m 高下 6 带（间距 1.6m）无盲区；4 带（2.67m）带间中点 1.33m > 1.05m 有 0.28m 盲区。
+  /// 覆盖判据（test_route_logic 守门）：间距/2 ≤ 相机横向半覆盖 = 0.527×search_alt。
+  /// 2.5m 高（10-08 统一）半覆盖≈1.32m，6 带（间距 1.6m）中点 0.8m 无盲区余量更大；
+  /// 2.0m 时半覆盖 1.05m，4 带（2.67m）带间中点 1.33m 曾有 0.28m 盲区。
   void build_search_route()
   {
     search_route_.clear();
@@ -1000,16 +1072,24 @@ private:
 
       case State::TAKEOFF:
         publish_setpoint_enabled_ = false;
-        if (!flight_gate_ok()) {
-          break;
-        }
-        if (relative_altitude() > 1.0) {
-          // 2026-10-07 补：进入 TAKEOFF 时已在空中（接管/延迟进入场景）——
-          // 此时发起飞命令的基准已不可信，直接按失败返航，防止目标错位冲高
-          fail_and_return("TAKEOFF 进入时已在空中——拒绝起飞");
+        // 起飞由 FC 自飞（CommandTOL），FSM 只做监视——遥测 odom 断流不应中止起飞，
+        // 只延后转换判定（60s 超时兜底）；2026-10-07 台架实测：爬升中 odom 断流 >1s
+        // 曾被本态门禁判「Odometry stale」直接进 LAND（209 号日志两次复现）
+        if (!flight_gate_ok(false)) {
           break;
         }
         if (!takeoff_sent_) {
+          // 「已在空中」守卫（10-07 加，10-08 改 odom 载体）：进入 TAKEOFF 时
+          // odom 相对锁框架点已爬升 >1m = 真在空中（接管/延迟进入场景），拒发
+          // 起飞防基准错位冲高。载体原为 GNSS 相对高——分钟级漂移 ±5m（210 号
+          // 实锤解锁沿 +4.84m）在地面即误触本守卫拒飞（3D DGPS 启动定案的实测
+          // 拦路虎一）；odom 同载体差值漂移相消，真空中进入（地面锁框架后手动
+          // 拉起）odom 看得见爬升、照样拦住。只在未发起飞命令时守卫：已发后
+          // 爬升越 1m 是命令本身的预期效果
+          if (position_.z - home_.value_or(position_).z > 1.0) {
+            fail_and_return("TAKEOFF 进入时已在空中——拒绝起飞");
+            break;
+          }
           // 视觉起飞门禁（SSOT §5.4：起飞前 ≥3 帧有效；M1 无视觉模式跳过）
           if (vision_takeoff_gate_ok()) {
             request_takeoff();
@@ -1021,7 +1101,15 @@ private:
               vision_valid_frames_, vision_takeoff_min_frames_);
           }
         }
-        if (relative_altitude() >= takeoff_alt_m_ * 0.90) {
+        // 起飞完成 0.9×（GNSS 口径主判据 + odom 或分支，2026-10-08 定案配套）：
+        // 单点 GPS 垂直噪声 ±2~4m，GNSS 读数偏低会拖到 Takeoff timeout（拦路虎
+        // 二）；odom=FC 爬升闭环自身变量（EK3_SRC1_POSZ 未切前=气压计），免疫
+        // GNSS 噪声。命令未发出时不判完成——视觉门禁拦截期不许噪声高读数跳过
+        // 起飞直入 SEARCH
+        if (takeoff_sent_ &&
+          (relative_altitude() >= takeoff_alt_m_ * 0.90 ||
+          position_.z - home_.value_or(position_).z >= takeoff_alt_m_ * 0.90))
+        {
           publish_setpoint_enabled_ = true;
           start_search();
         } else if ((now() - state_enter_time_).seconds() > takeoff_timeout_s_) {
@@ -1176,7 +1264,20 @@ private:
       return;
     }
     search_index_ = 0U;
-    // 首段 = 起飞点→搜索区入口（转场 ~28m），用转场速度；带内扫描仍 2m/s
+    // 悬停优先（2026-10-08 用户定案，SSOT §5.1）：首段先直线转场至投放区中心
+    // 悬停识别点，到位后定点悬停建图——锁定即省掉蛇形 ~19s；窗口到期未锁转
+    // 蛇形兜底（update_search）。M1 无视觉模式锁定不可能，不进悬停段白烧窗口；
+    // timeout=0 同样直接走蛇形。
+    if (!m1_no_vision_mode_ && search_hover_timeout_s_ > 0.0) {
+      search_hover_active_ = true;
+      start_segment(
+        position_,
+        field_to_local(search_hover_x_m_, search_hover_y_m_, search_alt_m_),
+        transit_speed_m_s_);
+      enter(State::SEARCH);
+      return;
+    }
+    // 兜底首段 = 起飞点→搜索区入口（转场 ~28m），用转场速度；带内扫描仍 2m/s
     // （转场 4m/s 省 ~7s，SSOT §5.4 分速度基线：转场 4.0/搜索 2.0）
     start_segment(position_, search_route_.front(), transit_speed_m_s_);
     enter(State::SEARCH);
@@ -1205,7 +1306,8 @@ private:
     // 3 筒全锁，航线尽头允许"2 筒 + 1 未知"降级）。检测已在 bucket_callback 喂图。
     target_ = sample_segment();
 
-    // SSOT P4-3：SEARCH 超时提前降级（2 筒+1 未知），不死等飞完全程再降
+    // SSOT P4-3：SEARCH 超时提前降级（2 筒+1 未知），不死等飞完全程再降；
+    // 悬停段同样适用（转场/悬停途中锁定成功都从这里即时进 ALIGN）
     if ((now() - state_enter_time_).seconds() > search_degrade_timeout_s_ &&
       try_enter_align(true))
     {
@@ -1214,6 +1316,30 @@ private:
     if (try_enter_align(false)) {
       return;
     }
+
+    // 悬停识别段（悬停优先+蛇形兜底，SSOT §5.1）：到位起算窗口，sample_segment
+    // 终点钳位即悬停点，原地保持；锁定已由上方 try_enter_align 即时接管。窗口
+    // 到期未锁→转蛇形兜底（喂图受 search_settle_s 沉降期把守，转场 ~8s 已耗完）。
+    // 转场久未到位不单独设卡：60s 提前降级 + 240s 任务超时兜底，与兜底转场同暴露。
+    if (search_hover_active_) {
+      if (!hover_since_.has_value()) {
+        if (!segment_complete(waypoint_accept_radius_m_)) {
+          return;
+        }
+        hover_since_ = now();
+        RCLCPP_INFO(get_logger(), "到达悬停识别点，窗口 %.0fs 起",
+          search_hover_timeout_s_);
+        return;
+      }
+      if ((now() - *hover_since_).seconds() > search_hover_timeout_s_) {
+        search_hover_active_ = false;
+        RCLCPP_WARN(get_logger(), "悬停识别 %.0fs 未锁定，转蛇形兜底",
+          search_hover_timeout_s_);
+        start_segment(position_, search_route_.front(), transit_speed_m_s_);
+      }
+      return;
+    }
+
     if (!segment_complete(waypoint_accept_radius_m_)) {
       return;
     }
@@ -1610,7 +1736,10 @@ private:
   // ===========================================================================
   bool navigation_ready() const
   {
-    return fcu_state_.connected && have_odom_ && have_compass_ && odom_fresh();
+    // ground_amsl_valid_：RTK fix 可得（2026-10-08 全切 GNSS 定案——无 fix 即
+    // 不锁定任务坐标系，fail-closed，室内无 RTK 不可飞）
+    return fcu_state_.connected && have_odom_ && have_compass_ && odom_fresh() &&
+      ground_amsl_valid_;
   }
 
   bool odom_fresh() const
@@ -1618,9 +1747,16 @@ private:
     return have_odom_ && (now() - last_odom_time_).seconds() <= odom_timeout_s_;
   }
 
+  /// RTK 高度遥测新鲜度（飞行门禁用；超时=gps_timeout_s）
+  bool gps_fresh() const
+  {
+    return have_gps_ && (now() - last_gps_time_).seconds() <= gps_timeout_s_;
+  }
+
   /// 每个飞行态更新前的安全门禁：掉连接/掉解锁 → 中止；GUIDED 丢 → 接管；
-  /// 定位过期 → 有序返航
-  bool flight_gate_ok()
+  /// 定位过期 → 有序返航（require_odom=false 供 TAKEOFF 用：起飞由 FC 自飞，
+  /// 遥测断流只延后状态转换，不中止已下发的起飞——60s 超时兜底）
+  bool flight_gate_ok(bool require_odom = true)
   {
     if (!fcu_state_.connected || !fcu_state_.armed) {
       fail("FCU disconnected or disarmed during mission");
@@ -1630,8 +1766,8 @@ private:
       enter(State::PILOT_OVERRIDE);
       return false;
     }
-    if (!odom_fresh()) {
-      fail_and_return("Odometry stale during mission");
+    if (require_odom && (!odom_fresh() || !gps_fresh())) {
+      fail_and_return("Odometry/GPS stale during mission");
       return false;
     }
     return true;
@@ -1639,7 +1775,11 @@ private:
 
   double relative_altitude() const
   {
-    return home_.has_value() ? position_.z - home_->z : 0.0;
+    // 任务相对高度（2026-10-08 用户定案）：= 实际高度 − 基准高度。
+    // 实际高度=RTK 推送（NavSatFix 海拔，FC 高度源已切 GNSS EK3_SRC1_POSZ=3，
+    // 闭环/命令/判读同系）；基准高度=上电 lock_frame 冻结的 gps_base_alt_m_。
+    // 基准未冻结时恒 0——飞行已被 navigation_ready（要 fix）fail-closed 拦在地面
+    return gps_base_frozen_ ? ground_amsl_m_ - gps_base_alt_m_ : 0.0;
   }
 
   /// 自主飞行态清单：接管保护只在这些状态触发
@@ -1657,12 +1797,49 @@ private:
       state_ == State::PILOT_OVERRIDE || state_ == State::ABORT;
   }
 
-  /// 落地判定（SSOT §5.4：≤0.30m + 速度门限；配合 LAND 态稳定 1.5s 确认）
+  /// landed_state 新鲜度（EXTENDED_SYS_STATE 断流窗）
+  bool extended_state_fresh() const
+  {
+    return have_extended_state_ &&
+      (now() - last_extended_state_time_).seconds() <= extended_state_timeout_s_;
+  }
+
+  /// FC 自报在地面（落地检测器权威输出）
+  bool on_ground_reported() const
+  {
+    return extended_state_fresh() &&
+      extended_state_.landed_state ==
+      mavros_msgs::msg::ExtendedState::LANDED_STATE_ON_GROUND;
+  }
+
+  /// 落地判定（2026-10-08 采纳哈工大 hgd_cudac 8_20 生产版三级设计；配合 LAND 态
+  /// 稳定 1.5s 确认）：
+  /// ①主判据 = FC 自身 landed_state——落地检测器内部量，与 GNSS 垂直精度无关，
+  ///   基本 GPS 下照常工作（解我方原红线②死结）；明确的非地面状态一律判否，
+  ///   绝不允许高度读数把空中报告翻转成 DISARM（哈工大同款防线）；
+  /// ②兜底（landed_state 缺失/过期）= odom 相对高（FC 闭环同载体，免疫 GNSS
+  ///   噪声）硬钳 ≤min(0.30 参数, 0.10) + 速度门限——此路彻底不再依赖 GNSS
+  ///   相对高（原 GNSS 0.30m 判据单点解下 ±2~4m 噪声不可用）；
+  /// ③FC 报在地面时连 odom 断流都不推翻——飞控落地检测不依赖机载里程计。
   bool landing_candidate() const
   {
-    return odom_fresh() && std::abs(relative_altitude()) <= landing_alt_gate_m_ &&
+    const bool velocity_low =
       horizontal_speed_m_s_ <= landing_hspeed_gate_m_s_ &&
       std::abs(vertical_speed_m_s_) <= landing_vspeed_gate_m_s_;
+    if (extended_state_fresh()) {
+      if (on_ground_reported()) {
+        return !odom_fresh() || velocity_low;
+      }
+      if (extended_state_.landed_state !=
+        mavros_msgs::msg::ExtendedState::LANDED_STATE_UNDEFINED)
+      {
+        return false;
+      }
+    }
+    const double alt = position_.z - home_.value_or(position_).z;
+    return odom_fresh() &&
+      std::abs(alt) <= std::min(landing_alt_gate_m_, 0.10) &&
+      velocity_low;
   }
 
   /// LOCK_FRAME 判定：航向在窗口期内漂移 ≤tol 才算锁定，超限则重新计时
@@ -1731,25 +1908,20 @@ private:
     return tracker_ && (t - tracker_->target->last_vision_t) <= align_servo_watchdog_s_;
   }
 
-  /// 解锁上升沿（2026-10-07 定案）：全部任务高度以解锁点地面为基准——
-  /// 任务坐标系 z 原点重锚到当前（解锁点地面），航线重建，起飞 AMSL 同刻冻结。
-  /// 若节点晚于解锁启动（首帧即 armed=true）则无上升沿→基准不冻结→
-  /// takeoff 拒发 + TAKEOFF 空中守卫拦截（fail-closed，落地重解锁即恢复）
+  /// 解锁上升沿：只做起飞 AMSL 健康门冻结（fail-closed）。任务高度体系与解锁沿
+  /// 无关——实际=RTK 推送、基准=上电冻结（lock_frame 完成），2026-10-08 用户定案。
+  /// 若节点晚于解锁启动（首帧即 armed=true）则无上升沿→AMSL 门不冻结→
+  /// takeoff 拒发（fail-closed，落地重解锁即恢复）
   void on_armed_edge()
   {
-    if (home_.has_value()) {
-      home_->z = position_.z;    // 任务 z 原点 = 解锁点地面（搜索/侦察/返航/对准全重锚）
-      build_search_route();
-      build_recon_route();
-    }
     if (ground_amsl_valid_) {
       takeoff_base_amsl_ = ground_amsl_m_;
       takeoff_base_frozen_ = true;
     }
     RCLCPP_INFO(get_logger(),
-      "解锁基准: 任务z原点=%.2fm（解锁点地面）, 起飞AMSL=%.1fm%s",
-      home_.has_value() ? home_->z : 0.0, takeoff_base_amsl_,
-      takeoff_base_frozen_ ? "" : "（无效:无海拔采样）");
+      "解锁: 起飞AMSL=%.1fm%s, RTK基准=%.2fm（上电冻结）, 当前任务相对高=%.2fm",
+      takeoff_base_amsl_, takeoff_base_frozen_ ? "" : "（无效:无海拔采样）",
+      gps_base_alt_m_, relative_altitude());
   }
 
   /// 视觉起飞门禁（SSOT §5.4：起飞前 ≥3 帧有效；无视觉模式/关闭时不拦）
@@ -1786,14 +1958,17 @@ private:
     }
     auto req = std::make_shared<mavros_msgs::srv::CommandTOL::Request>();
     if (!takeoff_base_frozen_) {
-      // NAV_TAKEOFF param7=海拔（MSL）。基准已在锁框架时一次性冻结——
-      // 未冻结（无全球定位采样/尚未锁框架）则不盲发（fail-closed）
+      // 冻结=锁框架时 GPS 采样可用，此处保留为位置源健康门（fail-closed），
+      // 基准值本身已不进命令（本固件 param7=相对爬升量）
       RCLCPP_WARN(get_logger(), "takeoff 拒发：地面海拔基准尚未冻结（锁框架前不起飞）");
       return;
     }
-    req->altitude = static_cast<float>(takeoff_base_amsl_ + takeoff_alt_m_);
-    RCLCPP_INFO(get_logger(), "takeoff 命令: 目标海拔 %.1fm（锁框架地面 %.1fm + 爬升 %.1fm）",
-      req->altitude, takeoff_base_amsl_, takeoff_alt_m_);
+    // 本固件（4.7.1/dbe79216）GUIDED 起飞 param7=相对当前高度的爬升量（frame 强制
+    // GLOBAL_RELATIVE_ALT，complete_alt=start_alt+z）——发 AGL 爬升量；发海拔会被按
+    // 「再爬 290m」解释（205 号日志 24.9m 冲高定案，2026-10-07）
+    req->altitude = static_cast<float>(takeoff_alt_m_);
+    RCLCPP_INFO(get_logger(), "takeoff 命令: 相对爬升 %.1fm（AGL；地面基准 %.1fm 仅监控）",
+      req->altitude, takeoff_base_amsl_);
     req->yaw = static_cast<float>(locked_compass_deg_);
     last_request_time_ = now();
     auto far = takeoff_client_->async_send_request(req);
@@ -2060,12 +2235,27 @@ private:
   rclcpp::Subscription<std_msgs::msg::UInt32>::SharedPtr recon_ack_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr bucket_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr global_fix_sub_;
-  // 地面海拔（AMSL）：起飞命令高度 = 锁框架时冻结的地面海拔 + takeoff_alt_m
-  // （NAV_TAKEOFF param7=MSL；2026-10-06 修高度基准 bug，10-07 二次修=锁框架冻结）
+  rclcpp::Subscription<mavros_msgs::msg::ExtendedState>::SharedPtr extended_state_sub_;
+  // 地面海拔（AMSL）：锁框架时冻结，仅作监控与 request_takeoff 的位置源健康门
+  // （起飞命令 param7=相对爬升量，海拔不进命令；10-07 二次修=锁框架冻结）
   double ground_amsl_m_ = 0.0;
   bool ground_amsl_valid_ = false;
   bool takeoff_base_frozen_ = false;
   double takeoff_base_amsl_ = 0.0;
+  // 任务高度体系（2026-10-08 用户定案：实际=RTK 推送、基准=上电冻结、相对=差值）。
+  // ground_amsl_m_=实际高度（NavSatFix 海拔，Ek3_SRC1_POSZ=3 下与 FC 闭环高度同源）；
+  // gps_base_alt_m_=基准高度（lock_frame 一次性冻结）；相对高度=relative_altitude()
+  // gps_timeout_s_=RTK 遥测新鲜度门限（飞行门禁 gps_fresh 用）
+  double gps_base_alt_m_ = 0.0;
+  bool gps_base_frozen_ = false;
+  bool have_gps_ = false;
+  rclcpp::Time last_gps_time_;
+  double gps_timeout_s_ = 2.0;
+  // 落地检测（哈工大三级设计）：FC 自报 landed_state 权威 + odom 兜底
+  mavros_msgs::msg::ExtendedState extended_state_;
+  bool have_extended_state_ = false;
+  rclcpp::Time last_extended_state_time_;
+  double extended_state_timeout_s_ = 2.5;
   std::optional<bool> was_armed_;   ///< 解锁上升沿检测（首帧不视为边沿）
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr setpoint_pub_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub_;
@@ -2138,6 +2328,8 @@ private:
   Segment segment_;
   std::optional<Point3> home_;
   std::vector<Point3> search_route_;
+  bool search_hover_active_ = false;     ///< 悬停识别段在途（悬停优先+蛇形兜底）
+  std::optional<rclcpp::Time> hover_since_;  ///< 悬停窗口起点（到位起算）
   std::vector<Point3> recon_route_;
   std::vector<std::uint32_t> recon_acks_;
   std::deque<cuadc_odom::Sample> odom_history_;
@@ -2191,6 +2383,9 @@ private:
   double search_half_width_m_ = 4.0;
   double search_degrade_timeout_s_ = 60.0;
   double search_settle_s_ = 8.0;
+  double search_hover_x_m_ = 30.0;
+  double search_hover_y_m_ = 0.0;
+  double search_hover_timeout_s_ = 12.0;
   double recon_x_m_ = 52.5;
   double recon_lane_len_m_ = 5.0;
   double recon_half_width_m_ = 4.0;

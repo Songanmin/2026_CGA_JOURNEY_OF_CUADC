@@ -323,11 +323,11 @@ class TargetTracker:
 
 
 # ===========================================================================
-# RELEASE 段：八门控 + 弹道前移 + 单发舵机
+# RELEASE 段：九门控 + 弹道前移 + 单发舵机（2026-10-08 借鉴 hgd 增角速度项）
 # ===========================================================================
 @dataclass
 class GateParams:
-    """默认值 = SSOT §5.2 释放八门控 + §5.4 基线。"""
+    """默认值 = SSOT §5.2 释放九门控 + §5.4 基线。"""
 
     max_horizontal_error_m: float = 0.10
     max_vertical_error_m: float = 0.10
@@ -335,6 +335,7 @@ class GateParams:
     max_vspeed_m_s: float = 0.05
     max_tilt_deg: float = 5.0
     max_yaw_err_deg: float = 5.0
+    max_angular_rate_deg_s: float = 5.0  # 三轴角速度模长（10-08 借鉴 hgd：防倾角过零振荡型失稳）
     stability_s: float = 0.8            # 连续无违约稳定
     hold_s: float = 1.5                 # 达到稳定后再保持（合计连续 2.3s）
     timeout_s: float = 6.0              # 进入 RELEASE 起 6s 未凑齐 → 弃桶
@@ -355,6 +356,7 @@ class GateSample:
     vx_m_s: float                        # 世界系速度（弹道前移 sanity 用）
     vy_m_s: float
     t: float
+    angular_rate_deg_s: float = 0.0     # 三轴角速度模长（deg/s），mission 填 odom twist
 
 
 def ballistic_lead(vx: float, vy: float, height_m: float,
@@ -365,7 +367,7 @@ def ballistic_lead(vx: float, vy: float, height_m: float,
 
 
 class ReleaseGate:
-    """八门控评估器。feed() 每拍一次；返回 ('idle'|'holding'|'fire'|'fired'|'abort', 原因)。
+    """九门控评估器。feed() 每拍一次；返回 ('idle'|'holding'|'fire'|'fired'|'abort', 原因)。
     'fire' 只出现一次，此后恒 'fired'（幂等）；任一项违约清零两个计时器。"""
 
     def __init__(self, params: Optional[GateParams] = None):
@@ -381,7 +383,7 @@ class ReleaseGate:
 
     def _instant(self, s: GateSample) -> Tuple[bool, str]:
         vals = [s.horiz_err_m, s.vert_err_m, s.hspeed_m_s, s.vspeed_m_s,
-                s.tilt_deg, s.yaw_err_deg, s.target_age_s, s.t]
+                s.tilt_deg, s.angular_rate_deg_s, s.yaw_err_deg, s.target_age_s, s.t]
         if not all(math.isfinite(v) for v in vals):
             return False, 'non_finite'
         if s.target_age_s > self.p.max_target_age_s:
@@ -396,6 +398,8 @@ class ReleaseGate:
             return False, 'vertical_speed'
         if s.tilt_deg > self.p.max_tilt_deg:
             return False, 'tilt'
+        if s.angular_rate_deg_s > self.p.max_angular_rate_deg_s:
+            return False, 'angular_rate'
         if s.yaw_err_deg > self.p.max_yaw_err_deg:
             return False, 'yaw_error'
         lead_x, lead_y = ballistic_lead(s.vx_m_s, s.vy_m_s, self.p.release_height_m)

@@ -307,7 +307,7 @@ static void test_target_tracker()
 
 // ---------------------------------------------------------------------------
 static GateSample ok_sample(double t, double horiz = 0.03, double hs = 0.03,
-  double age = 0.1, double vx = 0.0, double vy = 0.0)
+  double age = 0.1, double vx = 0.0, double vy = 0.0, double ang = 0.0)
 {
   GateSample s;
   s.horiz_err_m = horiz;
@@ -319,6 +319,7 @@ static GateSample ok_sample(double t, double horiz = 0.03, double hs = 0.03,
   s.target_age_s = age;
   s.vx_m_s = vx;
   s.vy_m_s = vy;
+  s.angular_rate_deg_s = ang;
   s.t = t;
   return s;
 }
@@ -355,7 +356,29 @@ static void test_release_gate()
     }
     CHECK(!fired);
   }
-  {   // 反盲投核心：目标超龄 → 永远不开火，直到超时弃桶
+  {   // 第 7 门（10-08 借鉴 hgd）：角速度超限 = 振荡型失稳，禁投直到超时弃桶
+    ReleaseGate g;
+    GateVerdict abort_verdict{GateStatus::kIdle, ""};
+    for (int i = 0; i < 80; ++i) {
+      abort_verdict = g.feed(ok_sample(i * 0.1, 0.03, 0.03, 0.1, 0.0, 0.0, 8.0));
+    }
+    CHECK(abort_verdict.status == GateStatus::kAbort);
+    CHECK(abort_verdict.reason.find("angular_rate") != std::string::npos);
+  }
+  {   // 角速度违约同样清零计时器
+    ReleaseGate g;
+    for (int i = 0; i < 10; ++i) {
+      g.feed(ok_sample(i * 0.1));              // 稳 1.0s
+    }
+    g.feed(ok_sample(1.05, 0.03, 0.03, 0.1, 0.0, 0.0, 30.0));  // 角速度违约
+    bool fired = false;
+    for (int i = 0; i < 10; ++i) {
+      if (g.feed(ok_sample(1.1 + i * 0.1)).status == GateStatus::kFire) {
+        fired = true;                          // 重新只稳 1.0s，不够 2.3s
+      }
+    }
+    CHECK(!fired);
+    {   // 反盲投核心：目标超龄 → 永远不开火，直到超时弃桶
     ReleaseGate g;
     GateVerdict abort_verdict{GateStatus::kIdle, ""};
     for (int i = 0; i < 80; ++i) {
