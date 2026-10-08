@@ -27,6 +27,7 @@ CMDS = {
     # ---- 阶段 0：解锁排障 ----
     "fc":            ("check_fc.py",    "阶段0", "连飞控读版本/模式/电池/姿态（定位 PreArm 报错）"),
     "prearm":        ("prearm_diag.py", "阶段0", "解锁前诊断：模式/RC/电池/EKF/罗盘一致性一次看全（只读）"),
+    "compass":       ("fc_compass_calib.py", "阶段0", "罗盘精细校准（机载六面，自动保存+重启+前后对比+落档，断链自恢复）: compass [COM口] [--mask 位掩码，只校某路]"),
     "params-diff":   ("verify_params.py", "阶段0/2", "参数一致性核对，用法: params-diff <参数文件>"),
     "params-export": ("verify_params.py", "阶段0", "参数全量备份到 02_飞控与硬件/参数备份/"),
     "params-load":   ("load_params.py",  "阶段0", "参数文件导入（默认两遍+重启）: params-load [COM口] <参数文件>"),
