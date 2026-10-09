@@ -87,11 +87,11 @@ def main():
         # onekey/vgps 是 Jetson 侧脚本（mavros/任务节点/DDS 话题都在机上）：
         # Windows 直接触发 = 自动 ssh 远跑；-tt 让本地 Ctrl-C 转发到远端，
         # 触发 onekey 的「退看护、不杀任务」安全语义（飞机可能仍在自主飞）。
+        cmd = ["ssh", "-tt", "-o", "ServerAliveInterval=30", "jetson",
+               "python3", "$HOME/" + script] + args
         print(f">>> [{stage}] {desc}")
         print(f">>> {' '.join(cmd)}\n")
         sys.exit(subprocess.call(cmd))
-        cmd = ["ssh", "-tt", "-o", "ServerAliveInterval=30", "jetson",
-               "python3", "$HOME/" + script] + args
     if script.endswith(".sh"):
         if os.name == "nt":
             print(f"[{stage}] {desc}")
