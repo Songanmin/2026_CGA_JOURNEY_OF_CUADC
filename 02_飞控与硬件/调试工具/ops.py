@@ -38,6 +38,7 @@ CMDS = {
     "gps":           ("check_gps.py",   "阶段2", "GPS 验收（3D Fix + ≥8星 + HDOP<1.5）"),
     "radio":         ("check_radio.py", "阶段2", "数传诊断（默认 COM10，只读；严禁 ATI5）"),
     "geo":           ("site_geo_check.py", "阶段2", "场地地理/就地测试：probe | here | record N"),
+    "mpwp":          ("mp_waypoints_gen.py", "阶段2", "生成 MP 备份救援航线 .waypoints（任务剖面同款，不含投放/拍照；AUTO 解锁即自主起飞）: mpwp --lat <WGS84> --lon <经度> [--alt 海拔] [--hdg 机头罗盘航向] [--no-snake|--no-hover]；先 --selftest 自检"),
     "rtk":           ("rtk_setup.py",  "阶段2", "RTK 流动端一键配置+验证（X20P：GPS2_TYPE=2 + SERIAL4_BAUD=230）"),
     # ---- 阶段 3：动力 ----
     "motor":         ("motor_test.py",  "阶段3", "电机顺序/方向（拆桨！）: motor [COM口] [输出]"),

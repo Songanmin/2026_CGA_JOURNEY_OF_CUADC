@@ -52,6 +52,7 @@ CUAV V6X（ArduPilot 4.7-beta）+ ZD550 四轴的调试脚本集，2026-09-05 �
 | `check_gps.py`（`gps`） | 本机 | GPS/罗盘接入：定位状态 / 卫星数 / HDOP / GPS1、GPS2 参数 / 罗盘 DEV_ID / EKF。验收口径：3D Fix + ≥8 星 + HDOP<1.5 |
 | `rtk_setup.py`（`rtk`） | 本机 | RTK 流动端一键配置+验证（X20P 接 GPS2）：写 GPS2_TYPE=2 + SERIAL4_BAUD=230 + GPS_AUTO_SWITCH=1 + GPS2_AUTO_CONFIG=0 + SERIAL4_PROTOCOL=5，再盯 GPS2 60s 出 RTK浮点(5)/固定(6)。⚠️ GPS2_TYPE 勿设 3（NMEA 驱动已删）；RTK 解需基站侧经 MP Inject 注入 RTCM。基站配置用 LGC（见 [../设备参数/LGC操作手册.md](../设备参数/LGC操作手册.md)） |
 | `site_geo_check.py`（`geo`） | 双端 | 场地地理与定位链路就地验证（只读不飞）：`probe` 与预设场地（自贡）比对距离/方位判定「是否已在赛场」；`here` 打印实测坐标回填；`record N` 记 GPS 评估抖动漂移。⚠️ 严禁高德 GCJ-02 坐标 |
+| `mp_waypoints_gen.py`（`mpwp`） | 本机 | **MP 备份救援航线生成器**（10-09 新增）：把任务剖面（起飞 2.5m→投放区中心悬停识别 12s→搜索蛇形 12 点→侦察蛇形 6 点→返航降落）生成为 Mission Planner 可加载的 QGC WPL 110 `.waypoints`——机上任务软件失效时飞手切 AUTO 的兜底航线，**不含投放/拍照/视觉动作**。几何母本=mission_params.yaml（自动直读，赛场修订只改 yaml）；`--hdg`=机头对准任务方向时的 MP HUD 罗盘航向。`python ops.py mpwp --lat <WGS84> --lon <经度> [--alt 海拔] [--hdg 0]`；先跑 `--selftest` 看回归锚点。⚠️ 严禁 GCJ-02 坐标；**AUTO 解锁即自主起飞，加载≠授权（红线 2）**；FC WP_RADIUS_M=2.0>搜索带半距 0.8m，贴带飞前调 ≤0.8 |
 
 ## 4. 定高激光测距（MicoAir MT-01P）
 
