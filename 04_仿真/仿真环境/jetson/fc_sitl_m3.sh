@@ -66,6 +66,14 @@ JPID=$!
     sleep 1
   done ) &
 TPID=$!
+# 侦察拍照握手替身（2026-10-09 补）：capture_request→capture_done 0.1s 回执；
+# 此前依赖自启的 hazard_recon 僵尸节点碰运气回 ack（DDS 图分裂时隐时现致 0/6 与 6/6 随机）
+( for i in 1 2 3 4 5; do
+    ros2 run cuadc_perception fake_recon_node >> "$LOG/fake_recon.log" 2>&1
+    echo "[watchdog] fake_recon 退出(第${i}次), 1s 后重启" >> "$LOG/fake_recon.log"
+    sleep 1
+  done ) &
+FRPID=$!
 sleep 2
 
 echo "[5] 状态轨迹记录 + 启动任务节点（正式模式 + 仿真判分桥 + 自动解锁）"
@@ -100,8 +108,9 @@ done
 echo "[8] 收尾清理"
 kill "$NPID" 2>/dev/null; sleep 1
 pkill -f "cuadc_mission_[n]ode" 2>/dev/null || true
-kill "$TPID" "$JPID" "$STPID" 2>/dev/null
+kill "$TPID" "$JPID" "$STPID" "$FRPID" 2>/dev/null
 pkill -f "scene_truth_perception" 2>/dev/null || true
+pkill -f "fake_recon_node" 2>/dev/null || true
 pkill -f "virtual_drop_judge" 2>/dev/null || true
 kill "$MPID" 2>/dev/null; pkill -f mavros_node 2>/dev/null
 sleep 2
