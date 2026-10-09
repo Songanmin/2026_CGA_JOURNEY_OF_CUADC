@@ -49,6 +49,7 @@ CMDS = {
     "servo-test":    ("fc_servo_test.sh", "Jetson", "舵机投放时序（收1100/释1700）"),
     "servo-diag":    ("fc_servo_diag.sh", "Jetson", "舵机不动时诊断 /mavros/rc/out"),
     "onekey":        ("fc_mission_onekey.py", "Jetson", "任务全流程一键（冷启动自检→MAVROS→状态机→看护→摘要）：本机执行=自动 ssh 到 Jetson。用法: onekey <23|13|12> [--no-vision] [--auto-arm] [--live-drop]"),
+    "vgps":          ("fc_virtual_gps.py", "Jetson", "室内台架虚拟 GPS（拆桨！叠加 FIX 帧让 FSM 走到 WAIT_ARM；严禁室外/真飞）: vgps [--alt 20] [--dur 0]"),
     "log":           ("fc_log_pull.py", "Jetson", "拉 dataflash 日志: log list | log get 名字"),
     "sync":          ("sync_jetson.py", "Jetson", "仓库→Jetson 一键同步+哈希核验（本机跑）: sync [push --yes] [关键词] | sync diff 关键词"),
 }

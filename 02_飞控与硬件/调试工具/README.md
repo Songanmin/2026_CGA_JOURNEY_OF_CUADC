@@ -116,6 +116,7 @@ CUAV V6X（ArduPilot 4.7-beta）+ ZD550 四轴的调试脚本集，2026-09-05 �
 |---|---|---|
 | `sih_jetson_build.sh` | Jetson | SIH 台架固件一键原生编译（xpack 工具链，pin dbe79216），产物归 [../firmware/](../firmware/)。⚠️ 产物只上台架，**禁止外场**。SIH 操作见 [../../04_仿真/SIH台架/SIH台架操作.md](../../04_仿真/SIH台架/SIH台架操作.md) |
 | `recon_bench_onekey.sh` | Jetson | **判读基准验证一键脚本**（09-25 新增，05 册 §6.1 的执行件）：环境→相机→单实例→bench→连发递增请求→**计时收结果**（窗=4s 证据窗，实测延迟 6~7s/窗）。`bash recon_bench_onekey.sh [窗数] [views]`；`stop` 收尾自动恢复 systemd；seq 状态存 `/tmp/recon_bench_onekey.seq` 跨运行递增（防同号去重忽略） |
+| `fc_virtual_gps.py`（`vgps`） | 本机→Jetson | **室内台架虚拟 GPS（拆桨！）**（10-09 新增）：往 /mavros/global_position/global 叠加 10Hz status=FIX 帧，任务 FSM 室内可走 LOCK_FRAME→PRESTREAM→WAIT_GUIDED→WAIT_ARM（到 WAIT_ARM 停，解锁权在飞手）；FC/EKF 零侵入纯话题叠加。**严禁室外/真飞时运行**（假经纬度污染真 GPS 判读）。PC 端入口：`python ops.py vgps [--alt 20] [--dur 0]` 配合 `onekey` 使用 |
 
 ## 13. 仓库↔Jetson 同步（代码一致性）
 
