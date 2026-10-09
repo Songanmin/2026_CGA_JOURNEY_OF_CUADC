@@ -48,7 +48,7 @@ fi
 echo "[3] 消息流订阅（SET_MESSAGE_INTERVAL，4.7 无 SR0 参数）"
 # SYS_STATUS=1 ATTITUDE=30 LOCAL_POSITION_NED=32 GLOBAL_POSITION_INT=33
 # VFR_HUD=74 BATTERY_STATUS=147 EXTENDED_SYS_STATE=245
-for mid in 1 30 32 33 74 147 245; do
+for mid in 1 24 30 32 33 74 147 245; do
   timeout 8 ros2 service call /mavros/set_message_interval \
     mavros_msgs/srv/MessageInterval "{message_id: $mid, message_rate: 10.0}" \
     > /dev/null 2>&1

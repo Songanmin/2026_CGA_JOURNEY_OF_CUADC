@@ -31,5 +31,15 @@ export GZ_SIM_SYSTEM_PLUGIN_PATH="$HOME/ardupilot_gazebo/build"
 nohup gz sim -s -r -v2 "$HOME/sim_scripts/cuadc_rescue_flight.sdf" > /tmp/gz_sim.log 2>&1 < /dev/null &
 sleep 15
 
+# 显式取消暂停（2026-10-08：L4T 36.4.7 新内核下 -r 自动运行不生效，世界加载即暂停，
+# 全链死于 GPS 无 fix；服务调用 unpause 实测恢复。m2 视觉在环恢复 Sensors 后同样需要）
+for i in $(seq 1 12); do
+  if gz service -s /world/cuadc_rescue_single/control --reqtype gz.msgs.WorldControl --reptype gz.msgs.Boolean --timeout 2000 --req 'pause: false' >/dev/null 2>&1; then
+    echo "unpause OK (尝试 $i)"
+    break
+  fi
+  sleep 2
+done
+
 echo "ardu=$(pgrep -c arducopter) gz=$(pgrep -c -f 'gz sim') p9002=$(ss -uanp 2>/dev/null | grep -c 9002) l5760=$(ss -tln 2>/dev/null | grep -c 5760) c5760=$(ss -tnp 2>/dev/null | grep -c ':5760')"
 tail -3 /tmp/ardu.log

@@ -13,9 +13,10 @@
              rgbd 相机出流（/d435i/image 等）。渲染吃 GPU，RTF 会降；纯飞行冒烟
              可临时注释掉本插件恢复满速。注意必须用 DISPLAY=:0 起服务端
              （或 EGL 无头渲染），纯 SSH 无显示环境时相机不出流。 -->
-        <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
-          <render_engine>ogre2</render_engine>
-        </plugin>
+        <!-- 2026-10-08：Sensors 渲染系统临时注释（m3 纯飞行冒烟不需要相机出流；
+             本机 nvidia EGL-device 路径坏 → ogre2 传感器渲染初始化绞死世界步进。
+             m2 视觉在环跑前恢复本块并用 DISPLAY=:0 桌面会话起服务端） -->
+
         <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
         <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
 
@@ -24,7 +25,7 @@
                场地 L155，视觉无法分割）；0.4 后太阳方向光提供对比度，白桶突出 -->
           <ambient>0.4 0.4 0.4 1</ambient>
           <background>0.78 0.80 0.82</background>
-          <sky/>
+
         </scene>
 
         <spherical_coordinates>
@@ -76,115 +77,96 @@
 <include>
   <name>drop_1</name>
   <uri>model://drop_bucket_15</uri>
-  <pose>28.44 0.02 0 0 0 0.0</pose>
+  <pose>29.201 0.878 0 0 0 0.0</pose>
 </include>
+
 <include>
   <name>drop_2</name>
   <uri>model://drop_bucket_20</uri>
-  <pose>30.05 2.56 0 0 0 0.0</pose>
+  <pose>29.333 -2.858 0 0 0 0.0</pose>
 </include>
+
 <include>
   <name>drop_3</name>
   <uri>model://drop_bucket_25</uri>
-  <pose>28.37 -1.96 0 0 0 0.0</pose>
+  <pose>31.874 -0.872 0 0 0 0.0</pose>
 </include>
+
 <include>
   <name>recon_1</name>
   <uri>model://recon_bucket</uri>
-  <pose>55.41 0.4 0 0 0 0.0</pose>
+  <pose>55.730 -1.512 0 0 0 0.0</pose>
 </include>
+
 <include>
   <name>recon_2</name>
   <uri>model://recon_bucket</uri>
-  <pose>56.16 0.34 0 0 0 0.0</pose>
+  <pose>56.392 1.241 0 0 0 0.0</pose>
 </include>
+
 <include>
   <name>recon_3</name>
   <uri>model://recon_bucket</uri>
-  <pose>55.95 1.9 0 0 0 0.0</pose>
+  <pose>54.247 -1.603 0 0 0 0.0</pose>
 </include>
+
 <include>
   <name>recon_4</name>
   <uri>model://recon_bucket</uri>
-  <pose>53.93 0.81 0 0 0 0.0</pose>
+  <pose>54.227 -3.163 0 0 0 0.0</pose>
 </include>
+
 <include>
   <name>recon_5</name>
   <uri>model://recon_bucket</uri>
-  <pose>53.4 2.25 0 0 0 0.0</pose>
+  <pose>56.291 -3.384 0 0 0 0.0</pose>
 </include>
-<model name="hazard_toxic_recon_4">
+
+<model name="hazard_corrosive_recon_1">
   <static>true</static>
-  <pose>53.93 0.81 0.165 0 0 -1.57079632679</pose>
+  <pose>55.730 -1.512 0.165 0 0 0.789</pose>
   <link name="link">
     <visual name="marker">
       <pose>0 0 0 0 0 0</pose>
-      <geometry>
-        <box>
-          <size>0.12 0.12 0.004</size>
-        </box>
-      </geometry>
-      <material>
-        <diffuse>1 1 1 1</diffuse>
-        <pbr>
-          <metal>
-            <albedo_map>model://hazard_marker/materials/textures/toxic.png</albedo_map>
-            <roughness>0.65</roughness>
-            <metalness>0</metalness>
-          </metal>
-        </pbr>
-      </material>
+      <geometry><box><size>0.12 0.12 0.004</size></box></geometry>
+      <material><diffuse>1 1 1 1</diffuse><pbr><metal>
+        <albedo_map>model://hazard_marker/materials/textures/corrosive.png</albedo_map>
+        <roughness>0.65</roughness><metalness>0</metalness>
+      </metal></pbr></material>
     </visual>
   </link>
 </model>
-<model name="hazard_biohazard_recon_1">
+
+<model name="hazard_dangerous_when_wet_recon_3">
   <static>true</static>
-  <pose>55.41 0.4 0.165 0 0 3.14159265359</pose>
+  <pose>54.247 -1.603 0.165 0 0 4.193</pose>
   <link name="link">
     <visual name="marker">
       <pose>0 0 0 0 0 0</pose>
-      <geometry>
-        <box>
-          <size>0.12 0.12 0.004</size>
-        </box>
-      </geometry>
-      <material>
-        <diffuse>1 1 1 1</diffuse>
-        <pbr>
-          <metal>
-            <albedo_map>model://hazard_marker/materials/textures/biohazard.png</albedo_map>
-            <roughness>0.65</roughness>
-            <metalness>0</metalness>
-          </metal>
-        </pbr>
-      </material>
+      <geometry><box><size>0.12 0.12 0.004</size></box></geometry>
+      <material><diffuse>1 1 1 1</diffuse><pbr><metal>
+        <albedo_map>model://hazard_marker/materials/textures/dangerous_when_wet.png</albedo_map>
+        <roughness>0.65</roughness><metalness>0</metalness>
+      </metal></pbr></material>
     </visual>
   </link>
 </model>
-<model name="hazard_radioactive_recon_3">
+
+<model name="hazard_nonflammable_gas_recon_5">
   <static>true</static>
-  <pose>55.95 1.9 0.165 0 0 3.14159265359</pose>
+  <pose>56.291 -3.384 0.165 0 0 5.436</pose>
   <link name="link">
     <visual name="marker">
       <pose>0 0 0 0 0 0</pose>
-      <geometry>
-        <box>
-          <size>0.12 0.12 0.004</size>
-        </box>
-      </geometry>
-      <material>
-        <diffuse>1 1 1 1</diffuse>
-        <pbr>
-          <metal>
-            <albedo_map>model://hazard_marker/materials/textures/radioactive.png</albedo_map>
-            <roughness>0.65</roughness>
-            <metalness>0</metalness>
-          </metal>
-        </pbr>
-      </material>
+      <geometry><box><size>0.12 0.12 0.004</size></box></geometry>
+      <material><diffuse>1 1 1 1</diffuse><pbr><metal>
+        <albedo_map>model://hazard_marker/materials/textures/nonflammable_gas.png</albedo_map>
+        <roughness>0.65</roughness><metalness>0</metalness>
+      </metal></pbr></material>
     </visual>
   </link>
 </model>
+
 <!-- yaw=0：机头朝世界 +X（场地前进方向，投放区/侦察区沿 +X），任务节点场地系 x=机头 -->
 <include><uri>model://iris_d435i</uri><pose degrees="true">0 0 0.29 0 0 0</pose></include>
       </world>

@@ -1,21 +1,22 @@
 seed: 2027
 source: randomized_scene_from_scene_yaml
+# 2026-10-09 桶位同步至世界 sdf/judge_truth_params 现行真值（10-04 世界改版时本文件漏更新致双投 invalid）
 drop_targets:
   drop_1:
-    x: 28.44
-    y: 0.02
+    x: 29.201
+    y: 0.878
     z: 0.0
     radius: 0.075
     score: 500
   drop_2:
-    x: 30.05
-    y: 2.56
+    x: 29.333
+    y: -2.858
     z: 0.0
     radius: 0.1
     score: 300
   drop_3:
-    x: 28.37
-    y: -1.96
+    x: 31.874
+    y: -0.872
     z: 0.0
     radius: 0.125
     score: 100

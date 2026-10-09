@@ -50,7 +50,7 @@ if ! python3 "$HOME/sim_scripts/fcu_ready.py" \
 fi
 
 echo "[3] 消息流订阅（SET_MESSAGE_INTERVAL）"
-for mid in 1 30 32 33 74 147 245; do
+for mid in 1 24 30 32 33 74 147 245; do
   timeout 8 ros2 service call /mavros/set_message_interval \
     mavros_msgs/srv/MessageInterval "{message_id: $mid, message_rate: 10.0}" \
     > /dev/null 2>&1
