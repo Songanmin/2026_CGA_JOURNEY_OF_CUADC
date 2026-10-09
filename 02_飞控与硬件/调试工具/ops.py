@@ -50,6 +50,7 @@ CMDS = {
     "servo-diag":    ("fc_servo_diag.sh", "Jetson", "舵机不动时诊断 /mavros/rc/out"),
     "onekey":        ("fc_mission_onekey.py", "Jetson", "任务全流程一键（冷启动自检→MAVROS→状态机→看护→摘要）：本机执行=自动 ssh 到 Jetson。用法: onekey <23|13|12> [--no-vision] [--auto-arm] [--live-drop]"),
     "vgps":          ("fc_virtual_gps.py", "Jetson", "室内台架虚拟 GPS（拆桨！叠加 FIX 帧让 FSM 走到 WAIT_ARM；严禁室外/真飞）: vgps [--alt 20] [--dur 0]"),
+    "bench":         ("fc_mission_onekey.py", "Jetson", "室内台架解锁试跑（拆桨!! GUIDED 即自动解锁+90s 看护限研磨）：bench <23|13|12>；需另开 vgps 窗口先跑"),
     "log":           ("fc_log_pull.py", "Jetson", "拉 dataflash 日志: log list | log get 名字"),
     "sync":          ("sync_jetson.py", "Jetson", "仓库→Jetson 一键同步+哈希核验（本机跑）: sync [push --yes] [关键词] | sync diff 关键词"),
 }
@@ -83,7 +84,9 @@ def main():
     path = os.path.join(HERE, script)
     if not os.path.exists(path):
         sys.exit(f"脚本不存在: {path}")
-    if name in ("onekey", "vgps"):
+    if name == "bench":
+        args = ["--auto-arm", "--timeout", "90"] + args
+    if name in ("onekey", "vgps", "bench"):
         # onekey/vgps 是 Jetson 侧脚本（mavros/任务节点/DDS 话题都在机上）：
         # Windows 直接触发 = 自动 ssh 远跑；-tt 让本地 Ctrl-C 转发到远端，
         # 触发 onekey 的「退看护、不杀任务」安全语义（飞机可能仍在自主飞）。
