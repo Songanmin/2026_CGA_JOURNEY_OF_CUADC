@@ -51,6 +51,7 @@ def main():
     ap.add_argument("--hz", type=float, default=10.0, help="发布频率（默认 10Hz，需高于 mavros 真 NO_FIX 帧率）")
     ap.add_argument("--dur", type=float, default=0.0, help="持续秒数（0=直到 Ctrl-C）")
     ap.add_argument("--status", type=int, default=0, help="注入的 status 值（0=STATUS_FIX；-1=NO_FIX 负向测试）")
+    ap.add_argument("--hdg", type=float, default=0.0, help="虚拟罗盘航向°（喂 compass_hdg；室内静止时 mavros 对地航向 65535 无效、任务 have_compass_ 永假，故须代喂）")
     args = ap.parse_args()
     ensure_ros(sys.argv)
 
@@ -58,12 +59,14 @@ def main():
     from rclpy.node import Node
     from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
     from sensor_msgs.msg import NavSatFix, NavSatStatus
+    from std_msgs.msg import Float64 as Float64Msg
 
     rclpy.init()
     node = Node("virtual_gps_bench")
     qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
                      history=HistoryPolicy.KEEP_LAST, depth=5)
     pub = node.create_publisher(NavSatFix, "/mavros/global_position/global", qos)
+    hdg_pub = node.create_publisher(Float64Msg, "/mavros/global_position/compass_hdg", qos)
 
     def make_msg(seq):
         msg = NavSatFix()
@@ -80,7 +83,7 @@ def main():
         return msg
 
     print(f"[vgps] 虚拟 GPS 启动: status={args.status} lat={args.lat} lon={args.lon} "
-          f"alt={args.alt}m @{args.hz}Hz → /mavros/global_position/global")
+          f"alt={args.alt}m hdg={args.hdg}° @{args.hz}Hz → global + compass_hdg")
     print("[vgps] ⚠️ 仅限室内台架/拆桨！观察任务 FSM: WAIT_NAV_STABLE→LOCK_FRAME→PRESTREAM→WAIT_GUIDED→WAIT_ARM")
     print("[vgps] Ctrl-C 停止。")
 
@@ -91,6 +94,7 @@ def main():
     try:
         while True:
             pub.publish(make_msg(n))
+            hdg_pub.publish(Float64Msg(data=args.hdg))
             n += 1
             if n % int(max(1, args.hz * 5)) == 0:
                 print(f"[vgps] 已发 {n} 帧（status={args.status}）", flush=True)
