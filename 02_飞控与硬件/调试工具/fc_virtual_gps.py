@@ -31,6 +31,9 @@ import sys
 
 def ensure_ros(argv):
     """ros2/rclpy 不在 PATH → bash -lc source 后重执行自身（onekey 同款）。"""
+    if os.name == "nt":
+        sys.exit("[vgps] 本工具须在 Jetson 上运行（DDS 话题与 mavros 同域）。"
+                 "Windows 端请用: python ops.py vgps")
     if shutil.which("ros2"):
         return
     print("[env] ros2 不在 PATH，source ROS 后重执行自身…")
