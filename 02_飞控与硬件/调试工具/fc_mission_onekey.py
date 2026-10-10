@@ -206,6 +206,28 @@ def main():
     ensure_ros(sys.argv)
     if not fcu:
         sys.exit("❌ 未找到 FCU 设备（ttyTHS1 与 cuadc-fc 均不在），可用 --fcu 强制指定")
+    # ---- [0.5] 相机节点确保在跑（用户定案：onekey 启动即先起相机）----
+    if sh(["pgrep", "-f", "camera_[n]ode.py"]).strip():
+        print("  ✅ camera_node 已在运行")
+    else:
+        print("[0.5] camera_node 未运行，拉起（相机未接时其内部 2s 重试循环待设备）")
+        clog = Path("/tmp/camera_node_onekey.log")
+        subprocess.Popen(
+            ["setsid", "python3", "-u", str(Path.home() / "camera_node.py")],
+            stdout=open(clog, "w"), stderr=subprocess.STDOUT, start_new_session=True)
+        up = False
+        for _ in range(8):
+            time.sleep(1)
+            if sh(["pgrep", "-f", "camera_[n]ode.py"]).strip():
+                up = True
+                break
+        print(f"  {'✅ camera_node 已拉起' if up else '⚠️ 拉起失败，详见 /tmp/camera_node_onekey.log'}")
+
+    # ---- [0.6] 真飞安全步：清台架残留 vgps（假 fix@10Hz 会污染真 GPS 判读）----
+    if sh(["pgrep", "-f", "fc_[v]irtual_gps"]).strip():
+        sh(["pkill", "-9", "-f", "fc_[v]irtual_gps"])
+        print("  🧹 已清除台架残留 vgps（假 GPS 注入进程，真飞严禁共存）")
+
     if not preflight(args.skip_services, args.no_vision):
         sys.exit("❌ 冷启动自检未过（上方 ❌ 项），拒绝进入任务链")
 
