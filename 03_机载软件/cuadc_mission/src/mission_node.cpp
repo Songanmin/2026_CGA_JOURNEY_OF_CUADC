@@ -62,6 +62,13 @@
 //   - PILOT_OVERRIDE 后不再向 FC 发任何新指令（stow 重试门闸）——借鉴其
 //     command_authority「故障不得恢复软件控制权」语义的单节点等价实现
 //
+// 2026-10-09 高度基准改定「解锁时定位高度」（用户定案，替代 10-08 上电冻结）：
+//   - 任务相对高度 = 实际定位高度 − 解锁时定位高度（解锁上升沿重冻 GNSS 基准）；
+//   - 动因：锁框架→解锁的飞手等待期 GNSS 分钟级漂移 ±5m（210 号实测）使
+//     0.9× 起飞判据永远够不着（TAKEOFF 超时无法起飞）；起飞命令本身是 AGL
+//     相对爬升不受影响，仅判据基准移动；
+//   - on_armed_edge 沿检测已有首帧保护（节点晚启不误采空中高度）。
+//
 // 安全铁律（SSOT §7）：
 //   1. 每一版必须先过 SITL 再上真机；真机首测拆桨；
 //   2. 飞手切走 GUIDED = 人工接管，本节点立即停发目标点并退让（绝不抢权）；
@@ -968,15 +975,13 @@ private:
     build_search_route();
     build_recon_route();
     // 任务高度体系（2026-10-08 用户定案）：实际高度=RTK 推送（NavSatFix 海拔），
-    // 基准高度=上电时读取值——本函数一次性冻结，任务相对高度=实际−基准；
-    // FC 高度源同步切 GNSS（EK3_SRC1_POSZ=3），闭环/命令/判读同系。基准此后不改动。
-    // 注意 home z（odom 载体）与 RTK 基准同刻冻结，航线 setpoint z 仍走 odom 系
-    gps_base_alt_m_ = ground_amsl_m_;
-    gps_base_frozen_ = ground_amsl_valid_;
+    // GNSS 基准高度 2026-10-09 用户定案改在解锁上升沿冻结（on_armed_edge）：
+    // 锁框架→解锁之间飞手等待的分钟级时间里 GNSS 漂移 ±5m（210 号实测），
+    // 上电冻结的旧基准曾使 0.9× 起飞判据永远够不着（TAKEOFF 超时无法起飞）。
+    // 本函数只锁 home z（odom 载体，航线 setpoint 系）与航向。
     RCLCPP_INFO(
-      get_logger(), "任务坐标系已锁定: home=(%.2f, %.2f, %.2f) 航向=%.1f° RTK基准=%.2fm%s",
-      home_->x, home_->y, home_->z, locked_compass_deg_, gps_base_alt_m_,
-      gps_base_frozen_ ? "" : "（无效:无 RTK fix，fail-closed）");
+      get_logger(), "任务坐标系已锁定: home=(%.2f, %.2f, %.2f) 航向=%.1f°（GNSS 基准待解锁沿冻结）",
+      home_->x, home_->y, home_->z, locked_compass_deg_);
   }
 
   /// 弓字形搜索航线：search_lanes 条平行带（沿 X 扫，带位沿 Y 均布），奇偶带交替方向。
@@ -1811,10 +1816,9 @@ private:
 
   double relative_altitude() const
   {
-    // 任务相对高度（2026-10-08 用户定案）：= 实际高度 − 基准高度。
-    // 实际高度=RTK 推送（NavSatFix 海拔，FC 高度源已切 GNSS EK3_SRC1_POSZ=3，
-    // 闭环/命令/判读同系）；基准高度=上电 lock_frame 冻结的 gps_base_alt_m_。
-    // 基准未冻结时恒 0——飞行已被 navigation_ready（要 fix）fail-closed 拦在地面
+    // 任务相对高度（用户定案）：= 实际高度 − 基准高度；
+    // 基准=解锁上升沿冻结的 gps_base_alt_m_（2026-10-09 改：原上电冻结跨不过
+    // 锁框架→解锁的 GNSS 漂移）。基准未冻结时恒 0——飞不飞得起来先过门禁
     return gps_base_frozen_ ? ground_amsl_m_ - gps_base_alt_m_ : 0.0;
   }
 
@@ -1968,9 +1972,13 @@ private:
     if (ground_amsl_valid_) {
       takeoff_base_amsl_ = ground_amsl_m_;
       takeoff_base_frozen_ = true;
+      // 任务高度基准=解锁时定位高度（用户定案 2026-10-09）：解锁沿重冻 GNSS 基准，
+      // 此刻起 任务相对高度=实际−本值；之后漂移由「同源同刻」口径抵消
+      gps_base_alt_m_ = ground_amsl_m_;
+      gps_base_frozen_ = true;
     }
     RCLCPP_INFO(get_logger(),
-      "解锁: 起飞AMSL=%.1fm%s, RTK基准=%.2fm（上电冻结）, 当前任务相对高=%.2fm",
+      "解锁: 起飞AMSL=%.1fm%s, GNSS基准=%.2fm（解锁沿冻结）, 当前任务相对高=%.2fm",
       takeoff_base_amsl_, takeoff_base_frozen_ ? "" : "（无效:无海拔采样）",
       gps_base_alt_m_, relative_altitude());
   }

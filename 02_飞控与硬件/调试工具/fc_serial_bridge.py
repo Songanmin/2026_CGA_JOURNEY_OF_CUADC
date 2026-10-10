@@ -37,6 +37,8 @@ def main():
     ap.add_argument("--serial", default="COM5", help="FC 串口（默认 COM5）")
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--mode", choices=["tcp", "udp"], default="tcp")
+    ap.add_argument("--multi", action="store_true",
+                    help="TCP 多客户端模式（mavros+pymavlink 同时挂桥，台架 GPS 注入用）")
     ap.add_argument("--host", default="127.0.0.1", help="对端地址（默认本机）")
     ap.add_argument("--net-port", type=int, default=14550)
     args = ap.parse_args()
@@ -47,6 +49,8 @@ def main():
           flush=True)
 
     state = {"client": None}
+    clients = []
+    clients_lock = threading.Lock()
 
     def serial_to_net():
         n = 0
@@ -55,6 +59,17 @@ def main():
             if not data:
                 continue
             if args.mode == "tcp":
+                if args.multi:
+                    with clients_lock:
+                        dsts = list(clients)
+                    for c in dsts:
+                        try:
+                            c.sendall(data)
+                        except Exception:
+                            with clients_lock:
+                                if c in clients:
+                                    clients.remove(c)
+                    continue
                 c = state["client"]
                 if c is None:
                     continue
@@ -76,9 +91,33 @@ def main():
         while True:
             if args.mode == "tcp":
                 conn, addr = srv.accept()
-                print("MP 已接入:", addr, flush=True)
-                state["client"] = conn
+                print("client 接入:", addr, flush=True)
                 conn.settimeout(1.0)
+                if args.multi:
+                    with clients_lock:
+                        clients.append(conn)
+
+                    def client_reader(c):
+                        try:
+                            while True:
+                                try:
+                                    data = c.recv(2048)
+                                    if not data:
+                                        break
+                                    ser.write(data)
+                                except socket.timeout:
+                                    continue
+                        except Exception as e:
+                            print("client err:", e, flush=True)
+                        finally:
+                            with clients_lock:
+                                if c in clients:
+                                    clients.remove(c)
+                            print("client 断开:", addr, flush=True)
+
+                    threading.Thread(target=client_reader, args=(conn,), daemon=True).start()
+                    continue
+                state["client"] = conn
                 try:
                     while True:
                         try:
@@ -106,7 +145,7 @@ def main():
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind((args.host, args.net_port))
-        srv.listen(1)
+        srv.listen(4)
     else:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
