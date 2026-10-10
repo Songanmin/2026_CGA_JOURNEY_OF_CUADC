@@ -261,8 +261,8 @@ def main():
     mmission.flush()
     mission_log = logdir / "mission.log"
 
-    print(">>> 飞手动作：等 LOCK_FRAME 锁好后，遥控切 GUIDED（WAIT_GUIDED 扳机）"
-          + ("，程序将自动解锁" if args.auto_arm else "，再手动解锁"))
+    print(">>> 飞手动作：等「准备完成」（STATE -> WAIT_GUIDED，定位/静止/视觉/舵机/预发送全齐）"
+          "后遥控切 GUIDED" + ("，程序自动解锁起飞" if args.auto_arm else "，再手动解锁"))
     print(f"[5] 看护中（最长 {args.timeout}s，Ctrl-C 一次=退看护不杀任务）…")
 
     # ---- [5] 看护循环 ----

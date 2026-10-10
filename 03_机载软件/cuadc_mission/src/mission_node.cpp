@@ -69,6 +69,11 @@
 //     相对爬升不受影响，仅判据基准移动；
 //   - on_armed_edge 沿检测已有首帧保护（节点晚启不误采空中高度）。
 //
+// 2026-10-09 起飞前准备项前移（用户定案）：定位/静止判定/时间同步（有效帧心跳）/
+// 视觉心跳/舵机初始化（两路收拢 PWM）/预发送全部在切 GUIDED 之前完成——
+// PRESTREAM 全门禁齐后打「准备完成」并进 WAIT_GUIDED，飞手切 GUIDED 后
+// （--auto-arm 时自动解锁）直接起飞；WAIT_GUIDED 中视觉心跳丢失回退 PRESTREAM。
+//
 // 安全铁律（SSOT §7）：
 //   1. 每一版必须先过 SITL 再上真机；真机首测拆桨；
 //   2. 飞手切走 GUIDED = 人工接管，本节点立即停发目标点并退让（绝不抢权）；
@@ -420,6 +425,7 @@ private:
 
     // 视觉起飞门禁（SSOT §5.4：起飞前 ≥3 帧有效；0 = 关闭；M1 无视觉模式不生效）
     declare_parameter<int>("vision_takeoff_min_frames", 3);
+    declare_parameter<double>("vision_heartbeat_gate_s", 2.0);  // 切 GUIDED 前视觉心跳新鲜门（2026-10-09）
 
     // ALIGN/RELEASE 视觉速度伺服（SSOT §5.2-209：对准段发速度指令，≥10Hz +
     // 500ms 看护失新即切位置保持）。默认关（位置 setpoint 对准），M2 视觉接入
@@ -571,6 +577,8 @@ private:
 
     vision_takeoff_min_frames_ =
       std::max(0, static_cast<int>(get_parameter("vision_takeoff_min_frames").as_int()));
+    vision_heartbeat_gate_s_ =
+      std::max(0.5, get_parameter("vision_heartbeat_gate_s").as_double());
 
     align_servo_enabled_ = get_parameter("align_servo_enabled").as_bool();
     align_servo_kp_ = std::max(0.05, get_parameter("align_servo_kp").as_double());
@@ -1084,14 +1092,40 @@ private:
         target_ = home_.value_or(position_);
         if (!navigation_ready()) {
           fail("Navigation lost during prestream");
-        } else if ((now() - state_enter_time_).seconds() >= prestream_hold_s_) {
-          enter(State::WAIT_GUIDED);
+          break;
         }
+        // 舵机初始化（2026-10-09 用户定案：切 GUIDED 前完成）：两路逐拍发收拢 PWM
+        // （send_servo 有 0.3s 节流与串行化约束，未发出的下拍自动重试）
+        if (!servo_init_ok_
+            && send_servo(servo_channel_[servo_init_ch_], servo_stowed_pwm_, false)) {
+          RCLCPP_INFO(get_logger(), "舵机初始化: CH%d → 收拢 %.0fµs",
+            servo_channel_[servo_init_ch_], servo_stowed_pwm_);
+          if (++servo_init_ch_ >= 2) {
+            servo_init_ok_ = true;
+          }
+        }
+        if ((now() - state_enter_time_).seconds() < prestream_hold_s_) {
+          break;
+        }
+        if (!servo_init_ok_ || !ready_vision_ok()) {
+          RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+            "准备项未齐: 舵机%s 视觉%s",
+            servo_init_ok_ ? "✓" : "…",
+            ready_vision_ok() ? "✓" : "帧数或心跳未达标");
+          break;
+        }
+        ready_announce();
+        enter(State::WAIT_GUIDED);
         break;
 
       case State::WAIT_GUIDED:
         target_ = home_.value_or(position_);
-        if (guided_active_) {
+        if (!ready_vision_ok()) {
+          // 准备项回退（视觉心跳丢失）：重新预发送，恢复后再次提示准备完成
+          RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+            "准备项回退: 视觉心跳丢失，重新预发送");
+          enter(State::PRESTREAM);
+        } else if (guided_active_) {
           enter(State::WAIT_ARM);
         }
         break;
@@ -1983,6 +2017,26 @@ private:
       gps_base_alt_m_, relative_altitude());
   }
 
+  /// 切 GUIDED 前的视觉就绪门（2026-10-09 用户定案前移）：契约有效帧数达标
+  /// 且有效帧心跳新鲜；m1 无视觉模式直通
+  bool ready_vision_ok() const
+  {
+    if (m1_no_vision_mode_) {
+      return true;
+    }
+    return have_vision_ && vision_valid_frames_ >= vision_takeoff_min_frames_
+      && (now() - last_vision_time_).seconds() <= vision_heartbeat_gate_s_;
+  }
+
+  /// 「准备完成」终端提示（每次进入 WAIT_GUIDED 打一条）
+  void ready_announce()
+  {
+    RCLCPP_INFO(get_logger(),
+      "═══ 准备完成: 定位✓ 静止✓ 时间同步✓ 视觉心跳✓ 舵机初始化✓ 预发送✓ —— %s ═══",
+      auto_arm_on_guided_ ? "飞手切 GUIDED 后自动解锁起飞"
+                          : "飞手切 GUIDED 后由飞手解锁");
+  }
+
   /// 视觉起飞门禁（SSOT §5.4：起飞前 ≥3 帧有效；无视觉模式/关闭时不拦）
   bool vision_takeoff_gate_ok() const
   {
@@ -2465,6 +2519,9 @@ private:
   double align_timeout_s_ = 12.0;
   std::string drop_order_ = "conservative";
   int vision_takeoff_min_frames_ = 3;
+  double vision_heartbeat_gate_s_ = 2.0;  ///< 切 GUIDED 前视觉心跳新鲜门
+  int servo_init_ch_ = 0;                 ///< 舵机初始化进度（0=CH9 未发，1=CH10 未发）
+  bool servo_init_ok_ = false;            ///< 两路收拢 PWM 均已发出
   bool align_servo_enabled_ = false;
   double align_servo_kp_ = 1.0;
   double align_servo_max_align_m_s_ = 0.8;
