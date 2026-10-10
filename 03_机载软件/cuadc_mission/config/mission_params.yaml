@@ -87,17 +87,8 @@ cuadc_mission:
     recon_half_width_m: 4.0         # 侦察区半宽（Y 方向 ±4，即每条带扫描长度 8m）
     recon_lanes: 3                  # 侦察带数 ×2 端点 = 6 航点（SSOT §5.1 蛇形6航点）
 
-    vision_takeoff_min_frames: 0    # 视觉起飞门禁：起飞前 ≥N 帧有效（SSOT §5.4；
+    vision_takeoff_min_frames: 3    # 视觉起飞门禁：起飞前 ≥N 帧有效（SSOT §5.4；
                                     # 0=关闭；m1_no_vision 模式不生效）
-                                    # 2026-10-09 用户定案：置 0 取消视觉门禁
-    vision_heartbeat_gate_s: 0.0    # 切 GUIDED 前视觉心跳新鲜门（秒；≤0=取消视觉
-                                    # 门控——2026-10-09 用户定案）
-
-    # ---- 盲投模式（2026-10-09 用户定案：无视觉按预设坐标投放两枚）----
-    # 实战得分模式仍需视觉锁定（HIT 教训：盲投精度=GPS 定位精度，米级）
-    blind_drop_mode: true
-    blind_drop_points: [29.0, -1.6, 31.0, 1.6]  # 盲投点×2（场地系 x,y 成对；
-                                                # 默认在搜索带 2/4 上，按实布桶位修订）
 
     # ---- ALIGN/RELEASE 速度伺服（SSOT §5.2-209；默认关=位置 setpoint 对准）----
     align_servo_enabled: false      # M2 真感知接入实测后置 true（SITL 先验符号约定）

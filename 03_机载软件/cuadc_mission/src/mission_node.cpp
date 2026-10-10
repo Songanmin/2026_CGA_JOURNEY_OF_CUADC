@@ -74,12 +74,6 @@
 // PRESTREAM 全门禁齐后打「准备完成」并进 WAIT_GUIDED，飞手切 GUIDED 后
 // （--auto-arm 时自动解锁）直接起飞；WAIT_GUIDED 中视觉心跳丢失回退 PRESTREAM。
 //
-// 2026-10-09 盲投模式 + 取消视觉门控（用户定案）：blind_drop_mode=true 时
-//   SEARCH 按预设盲投点（blind_drop_points 场地系 x,y×2，默认搜索带 2/4 上）
-//   逐点飞行，到位+低速冻结瞄准点进九门控（target_age 恒 0），投完转侦察——
-//   无视觉完成投弹链；vision_heartbeat_gate_s≤0 = 取消切 GUIDED 前视觉门控。
-//   ⚠️ 盲投精度=GPS 定位精度（米级），实战得分模式仍需视觉锁定（HIT 教训）。
-//
 // 安全铁律（SSOT §7）：
 //   1. 每一版必须先过 SITL 再上真机；真机首测拆桨；
 //   2. 飞手切走 GUIDED = 人工接管，本节点立即停发目标点并退让（绝不抢权）；
@@ -432,10 +426,6 @@ private:
     // 视觉起飞门禁（SSOT §5.4：起飞前 ≥3 帧有效；0 = 关闭；M1 无视觉模式不生效）
     declare_parameter<int>("vision_takeoff_min_frames", 3);
     declare_parameter<double>("vision_heartbeat_gate_s", 2.0);  // 切 GUIDED 前视觉心跳新鲜门（2026-10-09）
-    declare_parameter<bool>("blind_drop_mode", false);           // 盲投模式（2026-10-09 用户定案：无视觉按预设坐标投放）
-    declare_parameter<std::vector<double>>(
-      "blind_drop_points",
-      std::vector<double>{29.0, -1.6, 31.0, 1.6});               // 盲投点×2（场地系 x,y 成对；默认在搜索带 2/4 上）
 
     // ALIGN/RELEASE 视觉速度伺服（SSOT §5.2-209：对准段发速度指令，≥10Hz +
     // 500ms 看护失新即切位置保持）。默认关（位置 setpoint 对准），M2 视觉接入
@@ -588,13 +578,7 @@ private:
     vision_takeoff_min_frames_ =
       std::max(0, static_cast<int>(get_parameter("vision_takeoff_min_frames").as_int()));
     vision_heartbeat_gate_s_ =
-      get_parameter("vision_heartbeat_gate_s").as_double();   // ≤0 = 取消视觉门控（2026-10-09 用户定案）
-    blind_drop_mode_ = get_parameter("blind_drop_mode").as_bool();
-    blind_drop_pts_ = get_parameter("blind_drop_points").as_double_array();
-    if (blind_drop_mode_ && blind_drop_pts_.size() < 4) {
-      RCLCPP_ERROR(get_logger(), "blind_drop_points 需 ≥4 个数（x1,y1,x2,y2），盲投模式停用");
-      blind_drop_mode_ = false;
-    }
+      std::max(0.5, get_parameter("vision_heartbeat_gate_s").as_double());
 
     align_servo_enabled_ = get_parameter("align_servo_enabled").as_bool();
     align_servo_kp_ = std::max(0.05, get_parameter("align_servo_kp").as_double());
@@ -1347,26 +1331,8 @@ private:
   // ===========================================================================
   // 各阶段更新函数
   // ===========================================================================
-  /// 盲投航线（2026-10-09）：从当前载荷索引起逐个盲投点（场地系→本地）
-  void start_blind_route()
-  {
-    search_route_.clear();
-    search_hover_active_ = false;
-    for (std::size_t i = payload_index_; i < 2U; ++i) {
-      const std::size_t k = std::min(i * 2U, blind_drop_pts_.size() - 2U);
-      search_route_.push_back(field_to_local(
-        blind_drop_pts_[k], blind_drop_pts_[k + 1], search_alt_m_));
-    }
-    search_index_ = 0U;
-    start_segment(position_, search_route_.front(), search_speed_m_s_);
-  }
-
   void start_search()
   {
-    if (blind_drop_mode_) {
-      start_blind_route();
-      return;
-    }
     if (search_route_.empty()) {
       fail_and_return("Search route is empty");
       return;
@@ -1393,37 +1359,6 @@ private:
 
   void update_search()
   {
-    if (blind_drop_mode_) {
-      // 盲投模式（2026-10-09 用户定案）：无视觉，到位+低速即冻结瞄准点进释放
-      // 门控（九门控收口：位置/速度/姿态/角速度，target_age 恒 0——坐标即真值）
-      target_ = sample_segment();
-      const std::size_t k = std::min(
-        payload_index_ * 2U, blind_drop_pts_.size() - 2U);
-      const Point3 pt = field_to_local(
-        blind_drop_pts_[k], blind_drop_pts_[k + 1], search_alt_m_);
-      if (distance_xy(position_, pt) <= waypoint_accept_radius_m_ &&
-          horizontal_speed_m_s_ <= 0.5)
-      {
-        aim_point_ = Point3{pt.x, pt.y, position_.z};
-        release_gate_.reset();
-        RCLCPP_INFO(get_logger(),
-          "盲投点 %zu 到位 (%.2f, %.2f)，冻结瞄准点进释放门控（高度 %.2fm）",
-          payload_index_ + 1, aim_point_.x, aim_point_.y, aim_point_.z);
-        enter(State::RELEASE);
-        return;
-      }
-      if (!segment_complete(waypoint_accept_radius_m_)) {
-        return;
-      }
-      ++search_index_;
-      if (search_index_ < search_route_.size()) {
-        start_segment(position_, search_route_[search_index_], search_speed_m_s_);
-        return;
-      }
-      RCLCPP_WARN(get_logger(), "盲投：航线完成仍有载荷未投（盲投点是否在航线上？），转侦察");
-      start_recon_climb();
-      return;
-    }
     if (m1_no_vision_mode_) {
       // M1 演练模式：沿预设航线飞行，走完直接转侦察段
       target_ = sample_segment();
@@ -1631,14 +1566,12 @@ private:
   /// （旧实现拒绝只打 WARN 照样计数，真投虚报）；超时=结果未知，计数打标。
   void update_release()
   {
-    if (!blind_drop_mode_ && !tracker_) {
+    if (!tracker_) {
       fail_and_return("RELEASE without tracker");
       return;
     }
     const double t = now().seconds();
-    if (!blind_drop_mode_) {
-      tracker_->update(latest_detections_, t);     // 释放段持续复核目标
-    }
+    tracker_->update(latest_detections_, t);       // 释放段持续复核目标
     cuadc_drop::GateSample s;
     s.horiz_err_m = distance_xy(position_, aim_point_);
     s.vert_err_m = position_.z - aim_point_.z;
@@ -1647,7 +1580,7 @@ private:
     s.tilt_deg = tilt_deg_;
     s.angular_rate_deg_s = angular_rate_deg_s_;
     s.yaw_err_deg = yaw_err_deg_;
-    s.target_age_s = blind_drop_mode_ ? 0.0 : t - tracker_->target->last_vision_t;
+    s.target_age_s = t - tracker_->target->last_vision_t;
     s.vx_m_s = vx_local_;
     s.vy_m_s = vy_local_;
     s.t = t;
@@ -1699,7 +1632,7 @@ private:
     }
     if (verdict.status == cuadc_drop::GateStatus::kAbort) {
       RCLCPP_WARN(get_logger(), "释放门控弃桶(目标 %d)：%s",
-        blind_drop_mode_ ? -1 : tracker_->target->tid, verdict.reason.c_str());
+        tracker_->target->tid, verdict.reason.c_str());
       abandon_current_bucket(t);
     }
   }
@@ -1733,18 +1666,6 @@ private:
   /// 下一瓶（范围 = kNPayloads）：取排序里下一个未拉黑目标；没有则转侦察段。
   void advance_payload_or_finish()
   {
-    if (blind_drop_mode_) {
-      ++payload_index_;
-      if (payload_index_ < 2U) {
-        RCLCPP_INFO(get_logger(), "盲投：转下一盲投点 %zu", payload_index_ + 1);
-        enter(State::SEARCH);
-        start_blind_route();
-        return;
-      }
-      RCLCPP_INFO(get_logger(), "盲投完成（2/2），转侦察段");
-      start_recon_climb();
-      return;
-    }
     const double t = now().seconds();
     for (std::size_t i = payload_index_ + 1;
       i < payload_targets_.size() && i < static_cast<std::size_t>(kNPayloads); ++i)
@@ -2100,8 +2021,8 @@ private:
   /// 且有效帧心跳新鲜；m1 无视觉模式直通
   bool ready_vision_ok() const
   {
-    if (m1_no_vision_mode_ || vision_heartbeat_gate_s_ <= 0.0) {
-      return true;   // 2026-10-09 用户定案：门限 ≤0 = 取消视觉门控
+    if (m1_no_vision_mode_) {
+      return true;
     }
     return have_vision_ && vision_valid_frames_ >= vision_takeoff_min_frames_
       && (now() - last_vision_time_).seconds() <= vision_heartbeat_gate_s_;
@@ -2111,11 +2032,9 @@ private:
   void ready_announce()
   {
     RCLCPP_INFO(get_logger(),
-      "═══ 准备完成: 定位✓ 静止✓ 时间同步✓ 视觉%s 舵机初始化✓ 预发送✓ —— %s ═══",
-      vision_heartbeat_gate_s_ <= 0.0 ? "门已取消" : "心跳✓",
-      blind_drop_mode_ ? "盲投模式：切 GUIDED 后自动解锁，按预设坐标投放"
-                       : (auto_arm_on_guided_ ? "飞手切 GUIDED 后自动解锁起飞"
-                                              : "飞手切 GUIDED 后由飞手解锁"));
+      "═══ 准备完成: 定位✓ 静止✓ 时间同步✓ 视觉心跳✓ 舵机初始化✓ 预发送✓ —— %s ═══",
+      auto_arm_on_guided_ ? "飞手切 GUIDED 后自动解锁起飞"
+                          : "飞手切 GUIDED 后由飞手解锁");
   }
 
   /// 视觉起飞门禁（SSOT §5.4：起飞前 ≥3 帧有效；无视觉模式/关闭时不拦）
@@ -2600,9 +2519,7 @@ private:
   double align_timeout_s_ = 12.0;
   std::string drop_order_ = "conservative";
   int vision_takeoff_min_frames_ = 3;
-  double vision_heartbeat_gate_s_ = 2.0;  ///< 切 GUIDED 前视觉心跳新鲜门（≤0=取消）
-  bool blind_drop_mode_ = false;          ///< 盲投模式：无视觉按预设坐标投放
-  std::vector<double> blind_drop_pts_;    ///< 盲投点场地系坐标 x1,y1,x2,y2
+  double vision_heartbeat_gate_s_ = 2.0;  ///< 切 GUIDED 前视觉心跳新鲜门
   int servo_init_ch_ = 0;                 ///< 舵机初始化进度（0=CH9 未发，1=CH10 未发）
   bool servo_init_ok_ = false;            ///< 两路收拢 PWM 均已发出
   bool align_servo_enabled_ = false;
