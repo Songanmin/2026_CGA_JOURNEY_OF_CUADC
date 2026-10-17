@@ -48,7 +48,7 @@ CUADC2026开源仓库/
 
 ## 三种入口
 
-- **🚁 新人学习**：[docs/getting_started/00_总览与学习路线.md](docs/getting_started/00_总览与学习路线.md) → 预备知识 → 13 册说明书逐卷推进。
+- **🚁 新人学习**：**首选 [docs/复现指导_零基础搭建.md](docs/复现指导_零基础搭建.md)（零基础复现指导，14 章 425KB，每步带验收标准与真实坑标注）**；或传统路线 [docs/getting_started/00_总览与学习路线.md](docs/getting_started/00_总览与学习路线.md) → 预备知识 → 13 册说明书逐卷推进。
 - **🔧 复现系统**：[docs/manuals/01_环境搭建.md](docs/manuals/01_环境搭建.md) 起步 → `onboard/` 编译（各包 README）→ `flight_control/` 参数导入（注意「两遍导入」纪律）→ `simulation/` 先过 SITL → 真机前必读 `operations/`。
 - **💣 只想看教训**：[docs/lessons/错误与教训实录.md](docs/lessons/错误与教训实录.md)（我们犯过的错）→ [docs/lessons/经验与方法总结.md](docs/lessons/经验与方法总结.md)（沉淀出的方法论）。
 
