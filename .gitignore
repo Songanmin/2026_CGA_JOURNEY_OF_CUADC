@@ -17,6 +17,8 @@
 !/README.md
 !/AGENTS.md
 !/总体方案与执行计划.md
+!/LICENSE
+!/THIRD_PARTY_NOTICES.md
 
 # 放行：模块目录
 !/01_视觉感知/
@@ -84,3 +86,7 @@ __pycache__/
 *.py[cod]
 .DS_Store
 Thumbs.db
+# 编译残留硬排除（2026-10-18 立规，回灌开源树终扫口径：pyc/exe/pdb/build_test 不入库）
+*.exe
+*.pdb
+03_机载软件/build_test/
