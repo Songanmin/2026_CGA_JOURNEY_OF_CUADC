@@ -1,0 +1,70 @@
+# 真机白桶感知节点参数（bucket_perception_node，M2）
+# 语义：接口契约.md v1.3 §1/§2；算法与分级上线：01_视觉感知/视觉算法设计.md §4/§5
+/**:
+  ros__parameters:
+    # ---- 图像输入（与相机节点 best_effort 匹配；RELIABLE 订阅+BEST_EFFORT 发布=一帧收不到）----
+    image_topic: /camera/image_raw
+    image_compressed: true
+    image_qos_reliable: false
+    image_width: 1920
+    image_height: 1080
+
+    # ---- 相机内参（五件套之三）：比赛模式 allow_uncalibrated 必须 false ----
+    calib_path: /home/nvidia/cuadc_models/camera_calib.yaml
+    allow_uncalibrated: false
+    # ---- 相机安装外参（03_机载软件/外参测量清单_相机与投放口.md，2026-09-29 卡尺粗测）----
+    mount_rot_deg: 0.0        # A4 图像上方相对机头偏转：粗测 0（装正）
+    mount_pitch_deg: 0.0      # A5 光轴朝机头倾为+：粗测 0
+    mount_roll_deg: 0.0       # A6 光轴朝机体左倾为+：粗测 0
+    mount_offset_m: [0.09065, 0.0, -0.047286]
+    # A1~A3 光心机体系(前,左,上) m：镜头端面在飞控原点前方 90.65mm、左右 0、
+    # 低于飞控原点 47.286mm（2026-09-29 复测，首轮 2.86mm 系量法有误已作废；
+    # 光心在端面上方 3~4mm，差异 ≤4mm 对定位影响忽略，按端面值填）
+    # 待台架多高度+姿态扫描验证后回填精确值
+
+    # ---- 高度来源（单目解算，P0.4 同源容差）----
+    odom_topic: /mavros/local_position/odom
+    plane_z_m: 0.30           # 目标参考平面 = 桶口（筒高 30cm）
+    ground_z_offset: 0.0      # EKF 原点开机时在地面 → 0
+    odom_max_delay_s: 1.5
+    odom_future_tol_s: 0.05
+    odom_max_gap_s: 0.2
+    odom_history_span_s: 3.0
+
+    # ---- 主通道 engine（bucket.engine 就位 + SHA 登记后自动升级双通道）----
+    engine_path: /home/nvidia/cuadc_models/bucket.engine
+    expected_sha256: "8f42e66294444cf81e62d86714a8587a2d8aca6285c2dd762ebc5ee58badb150"  # bucket.engine v2_20261002（val 151/337: box mAP50 0.988/R 0.964）
+    imgsz: 640
+    seg_conf_thres: 0.25
+
+    # ---- 副通道 LAB（09-12 仿真标定值，实拍后按 06 坑清单流程复核）----
+    lab_l_min: 160.0
+    lab_l_offset: 10.0
+    lab_ab_max_dev: 22.0
+    lab_min_area_px: 40.0
+    lab_min_circularity: 0.60
+    lab_diam_compensation: 1.15
+    lab_conf_base: 0.55
+    lab_conf_circ_gain: 0.45
+
+    # ---- 双通道融合 ----
+    fuse_iou_thr: 0.5
+    fuse_w_main: 0.55
+    fuse_w_aux: 0.45
+    fuse_agree_bonus: 0.10
+    fuse_main_only_scale: 0.90
+    fuse_aux_only_scale: 0.70
+
+    # ---- 后处理（判据与消费端 drop_logic 同源；感知端独立性=保守 AND 版）----
+    merge_dist_m: 0.02
+    indep_min_dist_m: 0.20
+    indep_min_diam_diff_m: 0.025
+    smooth_window: 5
+    smooth_assoc_gate_m: 0.25
+    min_conf_out: 0.25
+
+    # ---- 运行控制 ----
+    active_states: ""         # 空=全态处理（bench 友好）；正式飞行可设 "SEARCH,ALIGN" 省 CPU
+    contract_version: 1.0
+    frame_id: cuadc_body_flu
+    debug_save_period: 0

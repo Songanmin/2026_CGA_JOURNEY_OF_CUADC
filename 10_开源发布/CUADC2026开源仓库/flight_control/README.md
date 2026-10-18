@@ -1,0 +1,24 @@
+# flight_control · 飞控与硬件
+
+> 主参数与任务航线在本目录 `params/`（V6X 主参数等）与 `mission/`（右区.plan）。
+
+飞控（CUAV V6X + ArduPilot 4.7-beta）参数、固件、调试工具与整机/模块设备参数。
+
+| 文件/目录 | 说明 |
+|---|---|
+| `V6X_ardupilot_params.param` | V6X ArduPilot 主参数（PLND / EKF2 激光 / WPNAV 等，任务书 W3 导入，**必须导入两遍中间重启**） |
+| `V6X_offboard_params.param` | offboard 相关参数快照 |
+| `params_backup/` | 飞控实测参数备份：`V3.param`（**4.7 系当前实态底稿**：用户手工导出、无头注无时间戳、出处待补——台账有行；单9Ps 写入集以其为基）＋ `param_write_cuav9ps_20261008.param`（**单9Ps 换装写入集** 2026-10-08：GPS1_POS 安装补偿 + COMPASS_ORIENT=4 + 配方核心键点名防漂移）；`*_20260928_234808.param`（0928 深夜，1128 项，144 日志分析后调优导入实态：INS_HNTCH_ENABLE=1+MODE=3 FFT 动态陷波压 Roll 轴 9.9/15.1Hz 结构峰、MOT_BAT_VOLT_MAX/MIN=25.2/21.0 电压推力补偿开启）为 0928 基线，`*_20260928_164614.param`（0928 16:46，1120 项，MT-01P 定高恢复激活后实态：RNGFND1 组 16 项回归+EK3_RNG_USE_HGT=4）为其前版留档，`*_20260928_003713.param`（0928 晨，1105 项，单NEO3 读参快照，RNGFND 关闭挂账态）为其前版留档，`*_20260924_231201.param`（0924，1082 项，MT-01P/X20P 在位配置，含 EK3_RNG_USE_HGT=4 / RNGFND1_TYPE=10 / SERIAL2_BAUD=57 定案）为换装前对照基准，`*_195845.param`（0919，1071 项）为其前版、`*_195445.param` 为新板出厂默认；旧板备份（09-05~09-17）留档对照 |
+| `docs/design/GPS方案/单cuav9ps方案.md` | **现行 GPS 方案**（2026-10-08 建）：单 CUAV C-RTK 9Ps（ZED-F9P+IST8310，UART1→GPS1 座串口）替代 NEO3——安装几何（上5/左5/同向）参数补偿 + 写入集 + 枚举序防呆 + 上线验证清单（六面罗盘校准/户外航向终判） |
+| `docs/design/GPS方案/单neo3方案.md` | 单 NEO3 方案参数记录（2026-09-28 建，GPS 侧已被 9Ps 换装取代、留作回退对照）：飞控 COM17 实读 1105 参数全量照录 + GPS/串口/EKF 源/罗盘核心参数注解 + 与 0924 基线差异归组（GPS 换装、RNGFND1 关闭挂账、TELEM3 链路批次） |
+| `docs/design/GPS方案/单neo3+MT01P方案.md` | 前版组合方案（2026-09-28 建）：单 NEO3 + MT-01P 双在位实态定格——**MT-01P 定高参数注解仍有效**，GPS 侧以 `单cuav9ps方案.md` 为准；定高恢复激活后 1120 参数全量照录（与 164614 备份逐字节同源）+ GPS/定高核心参数注解 + 与晨间快照差异归类 |
+| `firmware/` | 飞控固件存档：已刷的 4.7-beta v2 + 回退备用版 + SIH 台架专用版（附 README 与 SHA256SUMS） |
+| `ground_tools/ops_toolkit/README.md` | 飞控调试脚本：`ops.py` 统一入口 + check_fc / check_gps / prearm_diag / site_geo_check / rtk_setup / check_radio / verify_params / motor_test / servo_test / fc_* 全套；SIH 固件 Jetson 编译脚本 `sih_jetson_build.sh` 也在此 |
+| `devices/C-RTK3X20P.md` | CUAV C-RTK 3 X20P 基站+移动端（09-20 起 RTK 主链，验收达标后转正） |
+| `devices/MT-01P.md` | 微空 MT-01P 定高激光（09-20 采购定案顶替 TFmini；**09-24 实测定案 TELEM1/MAVLink/TYPE=10**） |
+| `devices/LGC操作手册.md` | LGC 地面站操作手册（X20P 基站配置唯一工具；含"无 LGC 工作流"拍板，09-23 立册） |
+| `devices/RTK-01.md` | （退役档案）瑞杰 RTK-01-R 规格与 6P 针序勘误（**FC k 针 → rover k+1 针循环移位，严禁 1:1 直通**；09-20 起退役封存，规则对 X20P 不适用） |
+| `devices/ZD550.md` | 整机（ZD550 机架）设备参数调查报告 |
+| `ground_tools/log_analysis/` | 飞控 dataflash 回拉日志存放处（`.BIN` 本地不入库）+ **架次台账**（README 内，每次回拉登记一行；命名 `YYYY-MM-DD_架次NN_目的.bin`，2026-09-19 建） |
+
+针级接线（各座总表+逐座接线卡）见 [`../06_使用说明书/02_装机接线.md`](../docs/manuals/02_装机接线.md)；SIH 台架仿真（计划/操作/参数）在 [`../04_仿真/SIH台架/`](../simulation/README.md)。
