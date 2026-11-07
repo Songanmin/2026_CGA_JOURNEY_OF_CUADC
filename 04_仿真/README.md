@@ -12,3 +12,10 @@
 | `仿真环境/jetson/`（脚本全家桶） | `reset_sim.sh`（全栈重置）/ `fc_sitl_mission.sh`（M1 闭环）/ `fc_sitl_m3.sh`（M3 判分）/ `fc_regression_m3.sh`（**上机闸门一键回归**，09-20）/ `fly.py` 冒烟 / `fcu_ready.py` 门禁 等 |
 
 SIH 固件的 Jetson 编译脚本 `sih_jetson_build.sh` 在 [`../02_飞控与硬件/调试工具/`](../02_飞控与硬件/README.md)；日常仿真四步流程与代码 SITL 联跑见 [`../06_使用说明书/07_仿真操作.md`](../06_使用说明书/07_仿真操作.md) §3 与 [`../03_机载软件/README.md`](../03_机载软件/README.md)。
+
+## 相关笔记
+
+- [[无人机国赛/04_仿真/SIH台架/SIH台架仿真计划|SIH台架仿真计划]] —— SIH 在环仿真计划（pin dbe79216）
+- [[无人机国赛/04_仿真/SIH台架/SIH台架操作|SIH台架操作]] —— SIH 台架刷入与恢复操作
+- [[无人机国赛/04_仿真/仿真环境/cuadc_rescue_sim/README|cuadc_rescue_sim/README]] —— Gazebo 救援仿真包说明
+- [[无人机国赛/04_仿真/仿真环境/jetson/操作手册|操作手册]] —— Jetson 上跑仿真的六步流程

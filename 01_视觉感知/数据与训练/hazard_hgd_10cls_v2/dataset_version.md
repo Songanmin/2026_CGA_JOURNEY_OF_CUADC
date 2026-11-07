@@ -64,7 +64,7 @@
 - **建集**:build_v31_dataset.py → hazard_v31_fusion/(白名单外本地不入库)。train 4696 = 旧 11class 合成 2220(synth_ 前缀,丢 barrel(10) 线)+ 物理模糊 split 2000(blur_ 前缀,速度谱 0.5~3.5m/s 全向物理换算=v×1/60s×FX800÷高度,2.0~3.0m 识别段,80% 运动/20% 清晰,seed31)+ v3_direct 实拍 476(real_ 前缀);val 58 = v3_direct val(含直采 20)纯实拍,合成一律不进 val。审计通过:标签零缺失零多余、id 全合法、逐类 train 587~698 / val 9~32(生物危害 9 最低)。
 - **类别口径**:10 类新表,与现役 v2 检测头同构(recon 链 NEG_CLASS=10 自然失活);barrel 不再作类别,白筒检测走 seg 线(barrel_seg_tools)。
 - **seeds 定案**(v2训练流水线/hazard_labels_v2_11class/hazard_labels/seeds/REMAP.md):原目录名 4 处错位(原腐蚀品=刺激性图案、原刺激性=放射性、原感染性物品=腐蚀品、原氧化剂=生物危害),两轮改名后目录名=图案=新表 id(哈希+牌面印刷文字+像素和三线验证 10/10);**旧 synth 标签 id 本就与新表对齐(目录错名恰好抵消),未做任何 id 重映射,严禁再按目录名语义映射**;synth/data.yaml 的 names 字符串陈旧但 id 语义正确。
-- **训练**:AutoDL 4090 脚本 v2训练流水线/run_v31_training.sh(yolov8n COCO 直训 100ep/imgsz640/batch16/seed0/patience30/hsv_h0.005/flipud0.5/close_mosaic10;上传 hazard_v31_fusion.zip+脚本即可,脚本 sed 重写 path 行并校验 4696/58);本机 CPU 备选同参约 14h。
+- **训练**:AutoDL 4090 脚本 v2训练流水线/run_v31_training.sh(yolov8n COCO 直训 100ep/imgsz640/batch16/seed0/patience30/hsv_h0.005/flipud0.5/close_mosaic10;上传 hazard_v31_fusion/（原 zip 已删，压缩后）+脚本即可,脚本 sed 重写 path 行并校验 4696/58);本机 CPU 备选同参约 14h。
 - **评估闸门基线**(03_机载软件/scripts/recon_eval.py):genseq 序列×2 seed(_reconeval/seq_s7、seq_s8,48 窗×20 帧@5Hz,v∈[0,3]m/s);现役 v2 detect+replay×2 已跑——**v2 对合成域近乎全盲**(s7 960 帧仅 48 帧=5% 过 0.7 门控,窗级 0 确认→两 seed 全留空 0 错填;s8 外推组合救回 1 窗 2%),主因=v2 只吃过哈工大实拍从未见合成渲染背景+640 推理下标识仅 ~19px。此为「改造前」画像;**融合开关(best_k/外推)准入裁决以 v3.1 模型 detect→replay 真数字为准**(判据=留空率显著降+错填率≈0,通过才翻 hazard_recon_node 默认并同步 SSOT §4.4)。
 - **训练交付(2026-10-01,AutoDL 4090 与 v3.2 同实例并行)**:run_v31_training.sh 全流程跑通,100ep 跑满无早停,训练末端 train mAP50=0.9752;权重 deliver_v31/best.pt SHA-256 461142419cb3345ca56dae3842726e4a83051d0196c8ee206a6ad27a50ad1657(val 报告/混淆矩阵/训练曲线/data.yaml 快照随包)。
 - **验收(val 58 图/198 框,逐类 mAP50≥0.90 无豁免)**:**全部 10 类达标**——爆炸品 0.995/不燃气体 0.995/生物危害 0.995/遇湿易燃 0.995/易燃 0.987/刺激性 0.971/腐蚀品 0.971/有毒品 0.964/自燃 0.950/放射性 0.948;整体 mAP50=0.977/mAP50-95=0.781/P=0.960/R=0.925。R<0.95 提示行:放射性 0.80/有毒品 0.819/不燃气体 0.91/刺激性 0.917/易燃 0.941——58 图小 val 单框级噪声口径,放射性/有毒品两处 recall 列入观察项。
@@ -111,3 +111,10 @@
 - **拍板：验收线未过 → 不进台架 A/B,生产维持 v3.2**(engine f09ae7e1…);
   补数方向=刺激性 X 牌专项(斜视/模糊/暗光域,可并外场日危化补数单),
   模糊增广(v3.1 合成模糊线现成)/p2 小目标头留 v3.4 选项
+
+## 相关笔记
+
+- [[无人机国赛/01_视觉感知/数据与训练/deliver_v2/dataset_version|deliver_v2/dataset_version]] —— 本台账的逐字节镜像件，须两处同步更新
+- [[无人机国赛/01_视觉感知/数据与训练/hazard_hgd_10cls_v2/aircraft_direct_20260929/README|aircraft_direct_20260929/README]] —— 台账机载直采条目对应的组内详情
+- [[无人机国赛/01_视觉感知/数据与训练/hazard_v3_direct/README|hazard_v3_direct/README]] —— hazard_v3_direct构建验收以本台账条目为准
+- [[无人机国赛/01_视觉感知/数据与训练/v2训练流水线/hazard_labels_v2_11class/hazard_labels/seeds/REMAP|REMAP]] —— seeds目录重映射定案记录于此

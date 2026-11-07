@@ -176,3 +176,9 @@ ros2 topic echo /cuadc/mission_state
 2. `auto_arm_on_guided` 默认 false，解锁权在飞手。
 3. M2 接入感知后，正式训练/比赛 `m1_no_vision_mode` 必须为 false（该演练模式仅用于无视觉排查）。
 4. 本机（Windows）未编译验证；首次 `colcon build` 如报笔误，按报错行修正即可。
+
+## 相关笔记
+
+- [[无人机国赛/总体方案与执行计划|总体方案与执行计划]] —— 自研软件方案唯一依据（SSOT）
+- [[无人机国赛/01_视觉感知/视觉算法设计|视觉算法设计]] —— M2 感知节点设计见该文 §8/§9
+- [[无人机国赛/04_仿真/仿真环境/README|仿真环境/README]] —— SITL 联跑与 fc_regression_m3 闸门

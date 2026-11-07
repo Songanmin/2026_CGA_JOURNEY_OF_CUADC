@@ -129,3 +129,10 @@ CUAV V6X（ArduPilot 4.7-beta）+ ZD550 四轴的调试脚本集，2026-09-05 �
 
 - `jetson_fc_dryrun_2026-09-09/` —— 首次真飞控 dryrun 的日志留档（非脚本）。
 - `__pycache__/` —— Python 缓存，忽略。
+
+## 相关笔记
+
+- [[无人机国赛/05_操作与比赛/现场操作_上电到遥控手动飞行实施步骤|现场操作_上电到遥控手动飞行实施步骤]] —— ops.py 按《现场操作》阶段分类
+- [[无人机国赛/02_飞控与硬件/参数备份/changes|changes]] —— param_backup 变更说明台账
+- [[无人机国赛/02_飞控与硬件/firmware/README|firmware/README]] —— SIH 台架固件产物归 firmware
+- [[无人机国赛/02_飞控与硬件/设备参数/C-RTK3X20P|C-RTK3X20P]] —— rtk_setup/check_can 调试的 X20P 本体

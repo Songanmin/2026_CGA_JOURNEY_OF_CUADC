@@ -32,8 +32,8 @@ cd /root/autodl-tmp && unzip -q barrel_v1_autodl_upload.zip
 
 | 文件 | 大小 | 说明 |
 |---|---|---|
-| `barrel_seg_v1.zip` | 279MB | 白筒 seg 集 1568/94（zip 内含 yolov8n-seg.pt，不用另传权重） |
-| `hmarker_v1.zip` | 104MB | H 圆 det 集 110/19（zip 内含 yolov8n.pt） |
+| `barrel_seg_v1/`（原 zip 已删，压缩后上传） | 279MB | 白筒 seg 集 1568/94（zip 内含 yolov8n-seg.pt，不用另传权重） |
+| `hmarker_v1/`（原 zip 已删，压缩后上传） | 104MB | H 圆 det 集 110/19（zip 内含 yolov8n.pt） |
 | `run_barrel_v1_autodl.sh` | 4KB | 一键脚本（本目录） |
 | `run_barrel_training.sh` | 4KB | 白筒训练脚本（本目录，**新版**） |
 | `run_hmarker_training.sh` | 4KB | H 圆训练脚本（本目录，**新版**） |
@@ -85,3 +85,9 @@ GPU 100ep 应当显著更高；**若 seg val 明显低于基线先查数据有�
    （pip 走清华源不受影响）；
 4. 后台训练要等完或确认孤儿进程清理——两套 run 目录并存时先对时间线再取权重
    （09-30 本机两 run 并存教训）。
+
+## 相关笔记
+
+- [[无人机国赛/01_视觉感知/数据与训练/barrel_seg_tools/实施方案_白筒正式版_外场600张到M2终验|实施方案_白筒正式版_外场600张到M2终验]] —— 实施方案§3.2照本卡§1~2租卡上传
+- [[无人机国赛/01_视觉感知/数据与训练/barrel_work_20261002/README_训练包说明|README_训练包说明]] —— v2训练包沿用本卡参数铁律
+- [[无人机国赛/01_视觉感知/数据与训练/v2训练流水线/AutoDL跑危化v32夜暗并训|AutoDL跑危化v32夜暗并训]] —— 危化v32并训明确"同白筒线§1"租卡

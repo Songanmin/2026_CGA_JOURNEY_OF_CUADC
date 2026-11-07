@@ -1204,3 +1204,10 @@ WP_YAW_BEHAVIOR,2.0
 WVANE_ENABLE,0.0
 ZIGZ_AUTO_ENABLE,0.0
 ```
+
+## 相关笔记
+
+- [[无人机国赛/02_飞控与硬件/GPS/单cuav9ps方案|单cuav9ps方案]] —— GPS侧已被现行9Ps换装方案取代
+- [[无人机国赛/02_飞控与硬件/GPS/单neo3+MT01P方案|单neo3+MT01P方案]] —— 基于本册叠加定高恢复的组合方案
+- [[无人机国赛/02_飞控与硬件/参数备份/changes|changes]] —— 003713备份缘由记录见changes台账
+- [[无人机国赛/02_飞控与硬件/飞行日志/README|飞行日志/README]] —— 09-28复飞21星基线见飞行日志台账

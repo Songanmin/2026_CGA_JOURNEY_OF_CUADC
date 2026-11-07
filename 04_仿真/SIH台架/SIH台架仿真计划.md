@@ -66,3 +66,9 @@
 | 3 | `SIM_OH_MASK` 开启后电机意外转动 | 拆桨 + 安全开关在位 + 电源手动可断；mask 分级先舵机后电机 |
 | 4 | V6X-v2 无 SIH 预编译固件，自编译可能有板级告警；Jetson apt 工具链（gcc-arm-none-eabi 10.3）与官方推荐版有差异 | 同源 hwdef + 同 SHA，产物先 `check_fc.py` 黑活验收再进 C2；若构建报工具链错，换 ARM 官方 10-2020-q2 tarball 重试 |
 | 5 | 网络：GitHub 直连不稳（502/静默挂断） | 全部下载走 ghfast 代理；git 部分克隆可断点续传；编译在 Jetson 本地完成不依赖外网 |
+
+## 相关笔记
+
+- [[无人机国赛/04_仿真/SIH台架/SIH台架操作|SIH台架操作]] —— 本计划配套的操作手册
+- [[无人机国赛/02_飞控与硬件/firmware/README|firmware/README]] —— SIH 台架固件归档与 SHA 台账
+- [[无人机国赛/02_飞控与硬件/调试工具/README|调试工具/README]] —— sih_jetson_build.sh 编译脚本

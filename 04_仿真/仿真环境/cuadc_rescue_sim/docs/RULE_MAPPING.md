@@ -182,3 +182,9 @@ models/hazard_marker/materials/textures
 ```
 
 第一阶段可用 `generated_scene.yaml` 真值验证飞控流程；第二阶段替换为视觉识别结果。
+
+## 相关笔记
+
+- [[无人机国赛/04_仿真/仿真环境/cuadc_rescue_sim/README|cuadc_rescue_sim/README]] —— 规则实现总览（包 README）
+- [[无人机国赛/总体方案与执行计划|总体方案与执行计划]] —— 赛规与筒号计分 SSOT
+- [[无人机国赛/04_仿真/仿真环境/cuadc_rescue_sim/docs/CONFIGURATION|CONFIGURATION]] —— 场地尺寸与坐标配置实现

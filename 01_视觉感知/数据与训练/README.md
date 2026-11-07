@@ -13,7 +13,7 @@
 |---|---|---|
 | **`deliver_v2/`** | **当前权威交付**（09-12）：best.pt + val_report + 混淆矩阵 + dataset_version.md | `hazard_hgd_10cls_v2`：按图案重映射附件11 十类 + 12 处错标修正；mAP50=0.963，未达标 刺激性/放射性 → v3 补数据。git 白名单外，注意备份 |
 | `train/` | 实拍原始数据（约 246MB） | 无人机俯拍标识桶原片，已剔除无关截图；**标签为旧表类别号** |
-| `real_data/` + `real_data.zip` | 切分好的训练集（约 244MB） | 按视频片段切分 train/val（防连续帧泄漏）；**data.yaml/标签为旧表，被 deliver_v2 重映射版取代** |
+| `real_data/`（原 `real_data.zip` 已删，按需重新压缩） | 切分好的训练集（约 244MB） | 按视频片段切分 train/val（防连续帧泄漏）；**data.yaml/标签为旧表，被 deliver_v2 重映射版取代** |
 | `build_real_data.py` | 数据集构建脚本 | 切分逻辑复现用；类别表已勘正为附件11 实表，**重跑前必须先重映射 train/ 标签**（见脚本头部警告） |
 | `v2训练流水线/` | 云端训练全套（约 547MB） | `AutoDL租卡训练指南v2.md`（操作手册）+ `run_v2_training.sh`（一键训练，内含 v1 自动兜底）+ `hazard_labels_v2_11class*`（v1 合成数据包 2220 张/11 类）。**⚠️ v1→v2 微调链停用**（旧类别表），现行路线 = COCO 预训练直训（SSOT §8.2）；指南留作租卡操作参考 |
 | `dataset_audit.py` + `test_dataset_audit.py` | 数据集审计器（09-20，SSOT §15-B4） | 审计 YOLO 标签：类别越界/坐标越界/零面积/NaN/seg 点数/图片标签互缺/精确重复图片（md5）/manifest session 泄漏；**只报告不自动改标签**；非零退出码可接 CI。`python dataset_audit.py --images real_data/images/train --labels real_data/labels/train --classes 11`；单测 `python -m unittest test_dataset_audit -v` |
@@ -32,3 +32,10 @@
 - 数据集版本命名：`hazard_hgd_10cls_v2`（当前）→ v3…，数据快照与权重同名存档；
 - **现场实拍验证集必须独立保留**（模拟比赛当天光照），不并入训练集；
 - 本目录体量大（约 1.3GB），**根仓库不入库**，只入库 `build_real_data.py` 与训练指南/脚本（见根 `.gitignore`）。
+
+## 相关笔记
+
+- [[无人机国赛/总体方案与执行计划|总体方案与执行计划]] —— SSOT§8训练验收与版本管理出处
+- [[无人机国赛/01_视觉感知/数据与训练/deliver_v2/dataset_version|deliver_v2/dataset_version]] —— 当前权威数据/权重版本台账
+- [[无人机国赛/01_视觉感知/数据与训练/v2训练流水线/AutoDL租卡训练指南v2|AutoDL租卡训练指南v2]] —— 云端训练操作手册
+- [[无人机国赛/06_使用说明书/05_视觉模块|05_视觉模块]] —— §2.1类别表勘正引用出处

@@ -127,3 +127,9 @@ Gazebo 中应看到：
 - 5 个随机侦察桶
 - 3 个危险化学品标识贴图
 - `iris_d435i` 飞行器
+
+## 相关笔记
+
+- [[无人机国赛/04_仿真/仿真环境/cuadc_rescue_sim/README|cuadc_rescue_sim/README]] —— 归档对象包说明与快速开始
+- [[无人机国赛/04_仿真/仿真环境/cuadc_rescue_sim/NOTICE|NOTICE]] —— LGPL 来源声明须随包保留
+- [[无人机国赛/THIRD_PARTY_NOTICES|THIRD_PARTY_NOTICES]] —— 仓库级第三方许可声明口径

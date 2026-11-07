@@ -260,3 +260,9 @@ colcon build --packages-select cuadc_rescue_sim
 ~/cuadc_ws/src/cuadc_rescue_sim/scripts/stop_cuadc_sim.sh
 ~/cuadc_ws/src/cuadc_rescue_sim/scripts/start_cuadc_sim.sh
 ```
+
+## 相关笔记
+
+- [[无人机国赛/04_仿真/仿真环境/cuadc_rescue_sim/README|cuadc_rescue_sim/README]] —— 包快速开始与目录说明
+- [[无人机国赛/04_仿真/仿真环境/jetson/操作手册|操作手册]] —— Jetson 实机运行六步操作
+- [[无人机国赛/06_使用说明书/01_环境搭建|01_环境搭建]] —— ROS2/Gazebo 环境搭建禁忌同源

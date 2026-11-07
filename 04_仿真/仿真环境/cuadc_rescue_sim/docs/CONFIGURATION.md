@@ -144,3 +144,9 @@ flammable.png
 ```
 
 后续如果你裁剪了更干净的训练图，只要保持文件名不变即可替换。
+
+## 相关笔记
+
+- [[无人机国赛/04_仿真/仿真环境/cuadc_rescue_sim/README|cuadc_rescue_sim/README]] —— 包的场景生成与快速开始
+- [[无人机国赛/04_仿真/仿真环境/cuadc_rescue_sim/docs/RULE_MAPPING|RULE_MAPPING]] —— 场地 8×5 与 5×8 口径换算
+- [[无人机国赛/01_视觉感知/数据与训练/v2训练流水线/hazard_labels_v2_11class/hazard_labels/seeds/REMAP|REMAP]] —— 附件 11 十类危化品标识同表

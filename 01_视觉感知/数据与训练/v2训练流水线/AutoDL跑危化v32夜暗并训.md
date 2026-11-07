@@ -39,7 +39,7 @@ cd /root/autodl-tmp && unzip -q v32_autodl_upload.zip && bash run_v32_training.s
 打包 `deliver_v32.zip`。
 
 **可选顺跑**：挂账的 v3.1 合训（合成+模糊）同实例可跑——上传
-`hazard_v31_fusion.zip` + `run_v31_training.sh`（本目录已有），前一个跑完接着
+`hazard_v31_fusion/`（压缩后）+ `run_v31_training.sh`（本目录已有），前一个跑完接着
 `bash run_v31_training.sh` 即可，互不影响。
 
 ## 4. 取结果
@@ -60,3 +60,10 @@ val_report_night.txt（夜暗单列）/ 混淆矩阵 / 训练曲线 / data.yaml 
 - 漏检率 R<0.95 提示行；
 - 回本机后：recon_eval 不在本线范围（那是 v3.1 模糊线的裁决流程）；
   **终判 = 台架 A/B 影子复测**（1.5 牌判 0 ≥0.8×6/6 + 双牌不互串），通过前生产维持 v2。
+
+## 相关笔记
+
+- [[无人机国赛/01_视觉感知/数据与训练/barrel_seg_tools/AutoDL跑白筒seg与H圆v1|AutoDL跑白筒seg与H圆v1]] —— 租卡流程与白筒线§1同源
+- [[无人机国赛/01_视觉感知/数据与训练/hazard_v32_direct/README|hazard_v32_direct/README]] —— 所训数据集v3.2的构成细则
+- [[无人机国赛/01_视觉感知/数据与训练/deliver_v32/dataset_version|deliver_v32/dataset_version]] —— 本执行对应的v3.2版本快照
+- [[无人机国赛/01_视觉感知/数据与训练/data0930/README|data0930/README]] —— 夜暗并训的data0930批标注记录

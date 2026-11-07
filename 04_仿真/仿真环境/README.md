@@ -94,3 +94,10 @@ Jetson 侧脚本在 `jetson/` 子目录（Jetson 上同步放于 `~/sim_scripts/
 LGPL——对外发布须保留 `cuadc_rescue_sim/NOTICE.md` 与来源声明；危化品贴图出自
 比赛附件 11，仅限训练用途）。按仓库白名单原则，`models/`（22MB mesh/贴图）已加入
 `.gitignore` 只留本地，脚本与文档入库。
+
+## 相关笔记
+
+- [[无人机国赛/总体方案与执行计划|总体方案与执行计划]] —— Gazebo 选型定案（SSOT §7）
+- [[无人机国赛/04_仿真/仿真环境/cuadc_rescue_sim/README|cuadc_rescue_sim/README]] —— 本机 Gazebo 仿真包说明
+- [[无人机国赛/03_机载软件/README|03_机载软件/README]] —— SITL 联跑与 M3 判分回归
+- [[无人机国赛/06_使用说明书/07_仿真操作|07_仿真操作]] —— 日常仿真四步流程卷

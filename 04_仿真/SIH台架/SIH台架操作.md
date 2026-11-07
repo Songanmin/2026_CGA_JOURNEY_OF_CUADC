@@ -83,3 +83,9 @@ python check_fc.py       # 记录当前固件版本，作为恢复后的对照
 | EKF 不就绪 | 回读 AHRS_EKF_TYPE/GPS1_TYPE/SIM_MAG1_DEVID 三件是否落地 |
 | GCS 地图在堪培拉 | SIM_OPOS_* 未设或未重启，正常现象不影响任务 |
 | 参数写不进/写后丢 | 09-12 铁律：写参数等 5 秒再重启 |
+
+## 相关笔记
+
+- [[无人机国赛/04_仿真/SIH台架/SIH台架仿真计划|SIH台架仿真计划]] —— 背景与版本锚点 dbe79216
+- [[无人机国赛/02_飞控与硬件/firmware/README|firmware/README]] —— 刷入/恢复的锁定 beta 固件来源
+- [[无人机国赛/02_飞控与硬件/调试工具/README|调试工具/README]] —— ops.py/check_fc.py/verify_params 工具

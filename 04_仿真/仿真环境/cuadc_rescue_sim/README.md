@@ -138,3 +138,9 @@ python3 ./sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON --map --conso
 <img width="3837" height="2157" alt="68edb154916b6c0f021813433ca1e971" src="https://github.com/user-attachments/assets/a067c7c8-31bc-4d82-98bc-b4fb644ca28f" />
 <img width="3837" height="2157" alt="a864ee056c372db0712d3d0863653156" src="https://github.com/user-attachments/assets/35f7606c-8315-4a40-8d51-e1392af7f4a0" />
 
+## 相关笔记
+
+- [[无人机国赛/02_飞控与硬件/设备参数/ZD550|ZD550]] —— 仿真模型几何源自 ZD550 实机 CAD
+- [[无人机国赛/04_仿真/仿真环境/jetson/操作手册|操作手册]] —— Jetson 上跑全任务判分流程
+- [[无人机国赛/03_机载软件/README|03_机载软件/README]] —— 任务状态机/感知在仿真验证
+- [[无人机国赛/06_使用说明书/07_仿真操作|07_仿真操作]] —— 仿真操作卷配套
